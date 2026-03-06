@@ -28,11 +28,12 @@ public:
 
 private:
     bool IsBlockSolid(int x, int y, int z);
-    void AddFace(int x, int y, int z, int face, int tileID);
+    //void AddFace(int x, int y, int z, int face, int tileID);
+    void AddGreedyFace(int x, int y, int z, int sizeU, int sizeV, int face, int tileID);
 	bool IsVisible(const glm::mat4& viewProj);
 
     unsigned int VAO, VBO;
     std::vector<float> vertices;
 
-    void AddCube(int x, int y, int z);
+    //void AddCube(int x, int y, int z);
 };
