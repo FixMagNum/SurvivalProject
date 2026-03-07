@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <glm/glm.hpp>
+#include <cstdint>
 #include "block.h"
 #include "aabb.h"
 
@@ -19,7 +20,7 @@ public:
 
     int minY = 0;
     int maxY = SIZE_Y - 1;
-
+        
     Chunk* neighborPX = nullptr;
     Chunk* neighborNX = nullptr;
     Chunk* neighborPZ = nullptr;
@@ -45,6 +46,7 @@ private:
         glm::vec3 axis2, int h,
         int tileID, bool flipWinding);
 
-    unsigned int VAO, VBO;
+    unsigned int VAO, VBO, EBO;
     std::vector<float> vertices;
+    std::vector<uint32_t> indices;
 };

@@ -116,23 +116,36 @@ void Chunk::AddQuad(
         vertices.push_back(v0);
         };
 
+    uint32_t base = (uint32_t)(vertices.size() / 7); // индекс первой новой вершины
+
+    // Push только 4 вершин
     if (!flipWinding)
     {
         push(p0, 0, 0);
-        push(p2, w, h);
         push(p1, w, 0);
-        push(p0, 0, 0);
-        push(p3, 0, h);
         push(p2, w, h);
+        push(p3, 0, h);
+
+        indices.push_back(base + 0);
+        indices.push_back(base + 2);
+        indices.push_back(base + 1);
+        indices.push_back(base + 0);
+        indices.push_back(base + 3);
+        indices.push_back(base + 2);
     }
     else
     {
         push(p0, 0, 0);
         push(p1, w, 0);
         push(p2, w, h);
-        push(p0, 0, 0);
-        push(p2, w, h);
         push(p3, 0, h);
+
+        indices.push_back(base + 0);
+        indices.push_back(base + 1);
+        indices.push_back(base + 2);
+        indices.push_back(base + 0);
+        indices.push_back(base + 2);
+        indices.push_back(base + 3);
     }
 }
 
@@ -140,6 +153,7 @@ void Chunk::AddQuad(
 void Chunk::BuildMesh()
 {
     vertices.clear();
+    indices.clear();
 
     float worldOffsetX = chunkPos.x * SIZE_X;
     float worldOffsetZ = chunkPos.y * SIZE_Z;
@@ -501,15 +515,16 @@ void Chunk::BuildMesh()
     {
         glGenVertexArrays(1, &VAO);
         glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
     }
 
     glBindVertexArray(VAO);
+    
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 
-    glBufferData(GL_ARRAY_BUFFER,
-        vertices.size() * sizeof(float),
-        vertices.data(),
-        GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_STATIC_DRAW);
 
     // Теперь stride = 7 floats: pos(3) + uv(2) + tileOffset(2)
     constexpr int STRIDE = 7 * sizeof(float);
@@ -530,5 +545,5 @@ void Chunk::BuildMesh()
 void Chunk::Draw()
 {
     glBindVertexArray(VAO);
-    glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 7); // было / 5, теперь / 7
+    glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0); // было / 5, теперь / 7
 }
