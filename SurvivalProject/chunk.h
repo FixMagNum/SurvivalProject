@@ -20,6 +20,7 @@ public:
     glm::ivec2 chunkPos;  // позиция в чанковой сетке (x,z)
 
     Chunk(int chunkX, int chunkZ, World* worldPtr);
+    
     BlockType blocks[SIZE_X][SIZE_Y][SIZE_Z];
 
     void Generate();
@@ -28,11 +29,15 @@ public:
 
 private:
     bool IsBlockSolid(int x, int y, int z);
-    void AddFace(int x, int y, int z, int face, int tileID);
 	bool IsVisible(const glm::mat4& viewProj);
+
+    // Добавляет прямоугольный quad (w x h блоков) с нужным тайлом
+    void AddQuad(
+        glm::vec3 origin,
+        glm::vec3 axis1, int w,
+        glm::vec3 axis2, int h,
+        int tileID, bool flipWinding);
 
     unsigned int VAO, VBO;
     std::vector<float> vertices;
-
-    void AddCube(int x, int y, int z);
 };

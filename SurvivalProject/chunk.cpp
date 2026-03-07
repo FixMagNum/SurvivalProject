@@ -71,141 +71,423 @@ bool Chunk::IsBlockSolid(int x, int y, int z)
     return block != AIR;
 }
 
-void Chunk::AddCube(int x, int y, int z)
-{
-    BlockType type = blocks[x][y][z];
-    BlockData data = blockDatabase[type];
-
-    // +X
-    if (!IsBlockSolid(x + 1, y, z))
-        AddFace(x, y, z, 0, data.side);
-
-    // -X
-    if (!IsBlockSolid(x - 1, y, z))
-        AddFace(x, y, z, 1, data.side);
-
-    // +Y
-    if (!IsBlockSolid(x, y + 1, z))
-        AddFace(x, y, z, 2, data.top);
-
-    // -Y
-    if (!IsBlockSolid(x, y - 1, z))
-        AddFace(x, y, z, 3, data.bottom);
-
-    // +Z
-    if (!IsBlockSolid(x, y, z + 1))
-        AddFace(x, y, z, 4, data.side);
-
-    // -Z
-    if (!IsBlockSolid(x, y, z - 1))
-        AddFace(x, y, z, 5, data.side);
-}
-
-void Chunk::AddFace(int x, int y, int z, int face, int tileID)
-{
-    int tileX = tileID % ATLAS_SIZE;
-    int tileY = tileID / ATLAS_SIZE;
-    tileID = tileY * ATLAS_SIZE + tileX;
-
-    static const float faces[6][30] =
-    {
-        // +X
-        {
-            0.5f,-0.5f,-0.5f,0.0f,0.0f,
-            0.5f, 0.5f,-0.5f,0.0f,1.0f,
-            0.5f, 0.5f, 0.5f,1.0f,1.0f,
-            0.5f, 0.5f, 0.5f,1.0f,1.0f,
-            0.5f,-0.5f, 0.5f,1.0f,0.0f,
-            0.5f,-0.5f,-0.5f,0.0f,0.0f
-        },
-
-        // -X
-        {
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f,
-            -0.5f,-0.5f, 0.5f,1.0f,0.0f,
-            -0.5f, 0.5f, 0.5f,1.0f,1.0f,
-            -0.5f, 0.5f, 0.5f,1.0f,1.0f,
-            -0.5f, 0.5f,-0.5f,0.0f,1.0f,
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f
-        },
-
-        // +Y
-        {
-            -0.5f,0.5f,-0.5f,0.0f,0.0f,
-            -0.5f,0.5f, 0.5f,0.0f,1.0f,
-             0.5f,0.5f, 0.5f,1.0f,1.0f,
-             0.5f,0.5f, 0.5f,1.0f,1.0f,
-             0.5f,0.5f,-0.5f,1.0f,0.0f,
-            -0.5f,0.5f,-0.5f,0.0f,0.0f
-        },
-
-        // -Y
-        {
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f,
-             0.5f,-0.5f,-0.5f,1.0f,0.0f,
-             0.5f,-0.5f, 0.5f,1.0f,1.0f,
-             0.5f,-0.5f, 0.5f,1.0f,1.0f,
-            -0.5f,-0.5f, 0.5f,0.0f,1.0f,
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f
-        },
-
-        // +Z
-        {
-            -0.5f,-0.5f,0.5f,0.0f,0.0f,
-             0.5f,-0.5f,0.5f,1.0f,0.0f,
-             0.5f, 0.5f,0.5f,1.0f,1.0f,
-             0.5f, 0.5f,0.5f,1.0f,1.0f,
-            -0.5f, 0.5f,0.5f,0.0f,1.0f,
-            -0.5f,-0.5f,0.5f,0.0f,0.0f
-        },
-
-        // -Z
-        {
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f,
-            -0.5f, 0.5f,-0.5f,0.0f,1.0f,
-             0.5f, 0.5f,-0.5f,1.0f,1.0f,
-             0.5f, 0.5f,-0.5f,1.0f,1.0f,
-             0.5f,-0.5f,-0.5f,1.0f,0.0f,
-            -0.5f,-0.5f,-0.5f,0.0f,0.0f
-        }
-    };
-
-    for (int i = 0; i < 30; i += 5)
-    {
-        float baseU = faces[face][i + 3];
-        float baseV = faces[face][i + 4];
-
-        float u = (tileX + baseU) * TILE_SIZE;
-        float v = (tileY + baseV) * TILE_SIZE;
-
-        float worldX = x + chunkPos.x * SIZE_X;
-        float worldZ = z + chunkPos.y * SIZE_Z;
-
-        vertices.push_back(faces[face][i + 0] + worldX);
-        vertices.push_back(faces[face][i + 1] + y);
-        vertices.push_back(faces[face][i + 2] + worldZ);
-        vertices.push_back(u);
-        vertices.push_back(v);
-    }
-}
-
 bool Chunk::IsVisible(const glm::mat4& viewProj)
 {
     return false;
 }
 
+void Chunk::AddQuad(
+    glm::vec3 origin,
+    glm::vec3 axis1, int w,
+    glm::vec3 axis2, int h,
+    int tileID, bool flipWinding)
+{
+    float worldOffsetX = chunkPos.x * SIZE_X;
+    float worldOffsetZ = chunkPos.y * SIZE_Z;
+
+    int tileX = tileID % ATLAS_SIZE;
+    int tileY = tileID / ATLAS_SIZE;
+
+    // Смещение тайла в атласе (передаётся в шейдер как TileOffset)
+    float u0 = tileX * TILE_SIZE;
+    float v0 = tileY * TILE_SIZE;
+
+    // UV в "тайловом" пространстве — просто 0..w и 0..h
+    // fract() в шейдере обеспечит повторение
+    glm::vec3 p0 = origin;
+    glm::vec3 p1 = origin + axis1 * (float)w;
+    glm::vec3 p2 = origin + axis1 * (float)w + axis2 * (float)h;
+    glm::vec3 p3 = origin + axis2 * (float)h;
+
+    // Формат вершины: x, y, z,  u, v,  tileU, tileV
+    // u,v     — тайловые координаты (0..w, 0..h)
+    // tileU,V — смещение тайла в атласе
+    auto push = [&](glm::vec3 p, float u, float v) {
+        vertices.push_back(p.x + worldOffsetX);
+        vertices.push_back(p.y);
+        vertices.push_back(p.z + worldOffsetZ);
+        vertices.push_back(u);
+        vertices.push_back(v);
+        vertices.push_back(u0);
+        vertices.push_back(v0);
+        };
+
+    if (!flipWinding)
+    {
+        push(p0, 0, 0);
+        push(p2, w, h);
+        push(p1, w, 0);
+        push(p0, 0, 0);
+        push(p3, 0, h);
+        push(p2, w, h);
+    }
+    else
+    {
+        push(p0, 0, 0);
+        push(p1, w, 0);
+        push(p2, w, h);
+        push(p0, 0, 0);
+        push(p2, w, h);
+        push(p3, 0, h);
+    }
+}
+
+
 void Chunk::BuildMesh()
 {
     vertices.clear();
 
-    for (int x = 0; x < SIZE_X; x++)
-        for (int y = 0; y < SIZE_Y; y++)
-            for (int z = 0; z < SIZE_Z; z++)
-                if (blocks[x][y][z] != 0)
-                    AddCube(x, y, z);
+    float worldOffsetX = chunkPos.x * SIZE_X;
+    float worldOffsetZ = chunkPos.y * SIZE_Z;
 
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
+    // Вспомогательная лямбда: возвращает BlockType внутри чанка или AIR за границей
+    auto getBlock = [&](int x, int y, int z) -> BlockType {
+        if (y < 0 || y >= SIZE_Y) return AIR;
+        if (x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
+            return blocks[x][y][z]; // внутри чанка — берём напрямую
+        int worldX = x + chunkPos.x * SIZE_X;
+        int worldZ = z + chunkPos.y * SIZE_Z;
+        return world->GetBlock(worldX, y, worldZ); // граница — спрашиваем мир
+        };
+
+    // Вспомогательная лямбда: возвращает тайл для данного блока и направления
+    // direction: 0=+Y(top), 1=-Y(bottom), иначе side
+    auto getTile = [&](BlockType type, int direction) -> int {
+        if (type == AIR) return -1;
+        BlockData& bd = blockDatabase[type];
+        if (direction == 0) return bd.top;
+        if (direction == 1) return bd.bottom;
+        return bd.side;
+        };
+
+    // === Ось Y: грани +Y и -Y ===
+    // Проходим по каждому слою y, строим XZ-маску
+    for (int y = 0; y < SIZE_Y; y++)
+    {
+        // +Y (смотрит вверх)
+        {
+            // mask[x][z] = тайл грани, или -1 если грань не видна
+            int mask[SIZE_X][SIZE_Z];
+            for (int x = 0; x < SIZE_X; x++)
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType above = getBlock(x, y + 1, z);
+                    // Показываем грань +Y блока cur, если cur непрозрачный и above прозрачный
+                    if (cur != AIR && above == AIR)
+                        mask[x][z] = getTile(cur, 0);
+                    else
+                        mask[x][z] = -1;
+                }
+
+            // Greedy sweep по XZ
+            bool used[SIZE_X][SIZE_Z] = {};
+            for (int x = 0; x < SIZE_X; x++)
+            {
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    if (used[x][z] || mask[x][z] < 0) continue;
+
+                    int tileID = mask[x][z];
+
+                    // Растягиваем по Z
+                    int dz = 1;
+                    while (z + dz < SIZE_Z && !used[x][z + dz] && mask[x][z + dz] == tileID)
+                        dz++;
+
+                    // Растягиваем по X
+                    int dx = 1;
+                    while (x + dx < SIZE_X)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dz; k++)
+                            if (used[x + dx][z + k] || mask[x + dx][z + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dx++;
+                    }
+
+                    // Помечаем использованными
+                    for (int ix = 0; ix < dx; ix++)
+                        for (int iz = 0; iz < dz; iz++)
+                            used[x + ix][z + iz] = true;
+
+                    // origin — нижний-левый угол quad'а на верхней грани блока (y+1)
+                    glm::vec3 origin((float)x, (float)(y + 1), (float)z);
+                    // axis1 вдоль X, axis2 вдоль Z
+                    AddQuad(origin,
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0, 1), dz,
+                        tileID, false);
+                }
+            }
+        }
+
+        // -Y (смотрит вниз)
+        {
+            int mask[SIZE_X][SIZE_Z];
+            for (int x = 0; x < SIZE_X; x++)
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType below = getBlock(x, y - 1, z);
+                    if (cur != AIR && below == AIR)
+                        mask[x][z] = getTile(cur, 1);
+                    else
+                        mask[x][z] = -1;
+                }
+
+            bool used[SIZE_X][SIZE_Z] = {};
+            for (int x = 0; x < SIZE_X; x++)
+            {
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    if (used[x][z] || mask[x][z] < 0) continue;
+
+                    int tileID = mask[x][z];
+
+                    int dz = 1;
+                    while (z + dz < SIZE_Z && !used[x][z + dz] && mask[x][z + dz] == tileID)
+                        dz++;
+
+                    int dx = 1;
+                    while (x + dx < SIZE_X)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dz; k++)
+                            if (used[x + dx][z + k] || mask[x + dx][z + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dx++;
+                    }
+
+                    for (int ix = 0; ix < dx; ix++)
+                        for (int iz = 0; iz < dz; iz++)
+                            used[x + ix][z + iz] = true;
+
+                    glm::vec3 origin((float)x, (float)y, (float)z);
+                    AddQuad(origin,
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0, 1), dz,
+                        tileID, true);
+                }
+            }
+        }
+    }
+
+    // === Ось X: грани +X и -X ===
+    for (int x = 0; x < SIZE_X; x++)
+    {
+        // +X
+        {
+            int mask[SIZE_Y][SIZE_Z];
+            for (int y = 0; y < SIZE_Y; y++)
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType next = getBlock(x + 1, y, z);
+                    if (cur != AIR && next == AIR)
+                        mask[y][z] = getTile(cur, 2); // side
+                    else
+                        mask[y][z] = -1;
+                }
+
+            bool used[SIZE_Y][SIZE_Z] = {};
+            for (int y = 0; y < SIZE_Y; y++)
+            {
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    if (used[y][z] || mask[y][z] < 0) continue;
+
+                    int tileID = mask[y][z];
+
+                    int dz = 1;
+                    while (z + dz < SIZE_Z && !used[y][z + dz] && mask[y][z + dz] == tileID)
+                        dz++;
+
+                    int dy = 1;
+                    while (y + dy < SIZE_Y)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dz; k++)
+                            if (used[y + dy][z + k] || mask[y + dy][z + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dy++;
+                    }
+
+                    for (int iy = 0; iy < dy; iy++)
+                        for (int iz = 0; iz < dz; iz++)
+                            used[y + iy][z + iz] = true;
+
+                    // Грань +X: origin на x+1, растянута по Z и Y
+                    glm::vec3 origin((float)(x + 1), (float)y, (float)z);
+                    AddQuad(origin,
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy,
+                        tileID, false);
+                }
+            }
+        }
+
+        // -X
+        {
+            int mask[SIZE_Y][SIZE_Z];
+            for (int y = 0; y < SIZE_Y; y++)
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType prev = getBlock(x - 1, y, z);
+                    if (cur != AIR && prev == AIR)
+                        mask[y][z] = getTile(cur, 2);
+                    else
+                        mask[y][z] = -1;
+                }
+
+            bool used[SIZE_Y][SIZE_Z] = {};
+            for (int y = 0; y < SIZE_Y; y++)
+            {
+                for (int z = 0; z < SIZE_Z; z++)
+                {
+                    if (used[y][z] || mask[y][z] < 0) continue;
+
+                    int tileID = mask[y][z];
+
+                    int dz = 1;
+                    while (z + dz < SIZE_Z && !used[y][z + dz] && mask[y][z + dz] == tileID)
+                        dz++;
+
+                    int dy = 1;
+                    while (y + dy < SIZE_Y)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dz; k++)
+                            if (used[y + dy][z + k] || mask[y + dy][z + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dy++;
+                    }
+
+                    for (int iy = 0; iy < dy; iy++)
+                        for (int iz = 0; iz < dz; iz++)
+                            used[y + iy][z + iz] = true;
+
+                    glm::vec3 origin((float)x, (float)y, (float)z);
+                    AddQuad(origin,
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy,
+                        tileID, true);
+                }
+            }
+        }
+    }
+
+    // === Ось Z: грани +Z и -Z ===
+    for (int z = 0; z < SIZE_Z; z++)
+    {
+        // +Z
+        {
+            int mask[SIZE_X][SIZE_Y];
+            for (int x = 0; x < SIZE_X; x++)
+                for (int y = 0; y < SIZE_Y; y++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType next = getBlock(x, y, z + 1);
+                    if (cur != AIR && next == AIR)
+                        mask[x][y] = getTile(cur, 2);
+                    else
+                        mask[x][y] = -1;
+                }
+
+            bool used[SIZE_X][SIZE_Y] = {};
+            for (int x = 0; x < SIZE_X; x++)
+            {
+                for (int y = 0; y < SIZE_Y; y++)
+                {
+                    if (used[x][y] || mask[x][y] < 0) continue;
+
+                    int tileID = mask[x][y];
+
+                    int dy = 1;
+                    while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == tileID)
+                        dy++;
+
+                    int dx = 1;
+                    while (x + dx < SIZE_X)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dy; k++)
+                            if (used[x + dx][y + k] || mask[x + dx][y + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dx++;
+                    }
+
+                    for (int ix = 0; ix < dx; ix++)
+                        for (int iy = 0; iy < dy; iy++)
+                            used[x + ix][y + iy] = true;
+
+                    glm::vec3 origin((float)x, (float)y, (float)(z + 1));
+                    AddQuad(origin,
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy,
+                        tileID, true);
+                }
+            }
+        }
+
+        // -Z
+        {
+            int mask[SIZE_X][SIZE_Y];
+            for (int x = 0; x < SIZE_X; x++)
+                for (int y = 0; y < SIZE_Y; y++)
+                {
+                    BlockType cur = getBlock(x, y, z);
+                    BlockType prev = getBlock(x, y, z - 1);
+                    if (cur != AIR && prev == AIR)
+                        mask[x][y] = getTile(cur, 2);
+                    else
+                        mask[x][y] = -1;
+                }
+
+            bool used[SIZE_X][SIZE_Y] = {};
+            for (int x = 0; x < SIZE_X; x++)
+            {
+                for (int y = 0; y < SIZE_Y; y++)
+                {
+                    if (used[x][y] || mask[x][y] < 0) continue;
+
+                    int tileID = mask[x][y];
+
+                    int dy = 1;
+                    while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == tileID)
+                        dy++;
+
+                    int dx = 1;
+                    while (x + dx < SIZE_X)
+                    {
+                        bool rowOk = true;
+                        for (int k = 0; k < dy; k++)
+                            if (used[x + dx][y + k] || mask[x + dx][y + k] != tileID) { rowOk = false; break; }
+                        if (!rowOk) break;
+                        dx++;
+                    }
+
+                    for (int ix = 0; ix < dx; ix++)
+                        for (int iy = 0; iy < dy; iy++)
+                            used[x + ix][y + iy] = true;
+
+                    glm::vec3 origin((float)x, (float)y, (float)z);
+                    AddQuad(origin,
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy,
+                        tileID, false);
+                }
+            }
+        }
+    }
+
+    // Загружаем меш в GPU
+    if (VAO == 0)
+    {
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+    }
 
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -215,13 +497,24 @@ void Chunk::BuildMesh()
         vertices.data(),
         GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    // Теперь stride = 7 floats: pos(3) + uv(2) + tileOffset(2)
+    constexpr int STRIDE = 7 * sizeof(float);
+
+    // location 0: позиция
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-	glEnableVertexAttribArray(1);
+
+    // location 1: тайловые UV (0..w, 0..h)
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // location 2: смещение тайла в атласе
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 }
 
-void Chunk::Draw() {
+void Chunk::Draw()
+{
     glBindVertexArray(VAO);
-    glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 5);
+    glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 7); // было / 5, теперь / 7
 }

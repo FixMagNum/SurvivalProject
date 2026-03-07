@@ -13,8 +13,11 @@
 const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoord;
+layout (location = 1) in vec2 aTexCoord;   // тайловые UV (0..w, 0..h)
+layout (location = 2) in vec2 aTileOffset; // смещение тайла в атласе
+
 out vec2 TexCoord;
+out vec2 TileOffset;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -24,18 +27,26 @@ void main()
 {
     gl_Position = projection * view * model * vec4(aPos, 1.0);
     TexCoord = aTexCoord;
+    TileOffset = aTileOffset;
 }
 )";
 
 const char* fragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
-uniform sampler2D texture1;
+
 in vec2 TexCoord;
+in vec2 TileOffset;
+
+uniform sampler2D texture1;
+
+const float TILE_SIZE = 1.0 / 16.0;
 
 void main()
 {
-    FragColor = texture(texture1, TexCoord);
+    // fract повторяет текстуру, затем масштабируем в пространство одного тайла в атласе
+    vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
+    FragColor = texture(texture1, uv);
 }
 )";
 
@@ -152,9 +163,9 @@ int main()
 
     Frustum frustum;
 
-    for (int x = -10; x <= 1; x++)
+    for (int x = -30; x <= 1; x++)
     {
-        for (int z = -10; z <= 1; z++)
+        for (int z = -30; z <= 1; z++)
         {
             // Создаём и генерируем чанк, но собираем меши во втором проходе.
             // Это гарантирует, что при построении меша все соседние чанки
