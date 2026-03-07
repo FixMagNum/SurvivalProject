@@ -163,6 +163,11 @@ int main()
 
     Frustum frustum;
 
+    const int xMin = -30, xMax = 1;
+    const int zMin = -30, zMax = 1;
+
+    world.chunks.reserve((xMax - xMin + 1) * (zMax - zMin + 1));
+
     for (int x = -30; x <= 1; x++)
     {
         for (int z = -30; z <= 1; z++)
@@ -172,8 +177,8 @@ int main()
             // уже присутствуют в `world.chunks` и внутренние грани не будут
             // ошибочно сгенерированы.
             world.chunks.emplace_back(x, z, &world);
+            world.chunkMap[{x, z}] = &world.chunks.back();
             world.chunks.back().Generate();
-            //world.chunks.back().BuildMesh();
         }
     }
 

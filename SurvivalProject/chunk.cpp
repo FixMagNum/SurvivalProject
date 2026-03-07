@@ -59,6 +59,15 @@ void Chunk::Generate()
                     blocks[x][y][z] = GRASS;
                 else
                     blocks[x][y][z] = AIR;
+
+    minY = SIZE_Y; maxY = 0;
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+            for (int y = 0; y < SIZE_Y; y++)
+                if (blocks[x][y][z] != AIR) {
+                    minY = std::min(minY, y);
+                    maxY = std::max(maxY, y);
+                }
 }
 
 bool Chunk::IsBlockSolid(int x, int y, int z)
@@ -69,11 +78,6 @@ bool Chunk::IsBlockSolid(int x, int y, int z)
     BlockType block = world->GetBlock(worldX, y, worldZ);
 
     return block != AIR;
-}
-
-bool Chunk::IsVisible(const glm::mat4& viewProj)
-{
-    return false;
 }
 
 void Chunk::AddQuad(
@@ -162,12 +166,12 @@ void Chunk::BuildMesh()
 
     // === Ось Y: грани +Y и -Y ===
     // Проходим по каждому слою y, строим XZ-маску
-    for (int y = 0; y < SIZE_Y; y++)
+    for (int y = minY; y <= maxY + 1; y++)
     {
         // +Y (смотрит вверх)
         {
             // mask[x][z] = тайл грани, или -1 если грань не видна
-            int mask[SIZE_X][SIZE_Z];
+            static int mask[SIZE_X][SIZE_Z];
             for (int x = 0; x < SIZE_X; x++)
                 for (int z = 0; z < SIZE_Z; z++)
                 {
@@ -181,7 +185,8 @@ void Chunk::BuildMesh()
                 }
 
             // Greedy sweep по XZ
-            bool used[SIZE_X][SIZE_Z] = {};
+            static bool used[SIZE_X][SIZE_Z] = {};
+            memset(used, 0, sizeof(used));
             for (int x = 0; x < SIZE_X; x++)
             {
                 for (int z = 0; z < SIZE_Z; z++)
@@ -224,7 +229,7 @@ void Chunk::BuildMesh()
 
         // -Y (смотрит вниз)
         {
-            int mask[SIZE_X][SIZE_Z];
+            static int mask[SIZE_X][SIZE_Z];
             for (int x = 0; x < SIZE_X; x++)
                 for (int z = 0; z < SIZE_Z; z++)
                 {
@@ -236,7 +241,8 @@ void Chunk::BuildMesh()
                         mask[x][z] = -1;
                 }
 
-            bool used[SIZE_X][SIZE_Z] = {};
+            static bool used[SIZE_X][SIZE_Z] = {};
+            memset(used, 0, sizeof(used));
             for (int x = 0; x < SIZE_X; x++)
             {
                 for (int z = 0; z < SIZE_Z; z++)
@@ -278,7 +284,7 @@ void Chunk::BuildMesh()
     {
         // +X
         {
-            int mask[SIZE_Y][SIZE_Z];
+            static int mask[SIZE_Y][SIZE_Z];
             for (int y = 0; y < SIZE_Y; y++)
                 for (int z = 0; z < SIZE_Z; z++)
                 {
@@ -290,7 +296,8 @@ void Chunk::BuildMesh()
                         mask[y][z] = -1;
                 }
 
-            bool used[SIZE_Y][SIZE_Z] = {};
+            static bool used[SIZE_Y][SIZE_Z] = {};
+            memset(used, 0, sizeof(used));
             for (int y = 0; y < SIZE_Y; y++)
             {
                 for (int z = 0; z < SIZE_Z; z++)
@@ -329,7 +336,7 @@ void Chunk::BuildMesh()
 
         // -X
         {
-            int mask[SIZE_Y][SIZE_Z];
+            static int mask[SIZE_Y][SIZE_Z];
             for (int y = 0; y < SIZE_Y; y++)
                 for (int z = 0; z < SIZE_Z; z++)
                 {
@@ -341,7 +348,8 @@ void Chunk::BuildMesh()
                         mask[y][z] = -1;
                 }
 
-            bool used[SIZE_Y][SIZE_Z] = {};
+            static bool used[SIZE_Y][SIZE_Z] = {};
+            memset(used, 0, sizeof(used));
             for (int y = 0; y < SIZE_Y; y++)
             {
                 for (int z = 0; z < SIZE_Z; z++)
@@ -383,7 +391,7 @@ void Chunk::BuildMesh()
     {
         // +Z
         {
-            int mask[SIZE_X][SIZE_Y];
+            static int mask[SIZE_X][SIZE_Y];
             for (int x = 0; x < SIZE_X; x++)
                 for (int y = 0; y < SIZE_Y; y++)
                 {
@@ -395,7 +403,8 @@ void Chunk::BuildMesh()
                         mask[x][y] = -1;
                 }
 
-            bool used[SIZE_X][SIZE_Y] = {};
+            static bool used[SIZE_X][SIZE_Y] = {};
+            memset(used, 0, sizeof(used));
             for (int x = 0; x < SIZE_X; x++)
             {
                 for (int y = 0; y < SIZE_Y; y++)
@@ -433,7 +442,7 @@ void Chunk::BuildMesh()
 
         // -Z
         {
-            int mask[SIZE_X][SIZE_Y];
+            static int mask[SIZE_X][SIZE_Y];
             for (int x = 0; x < SIZE_X; x++)
                 for (int y = 0; y < SIZE_Y; y++)
                 {
@@ -445,7 +454,8 @@ void Chunk::BuildMesh()
                         mask[x][y] = -1;
                 }
 
-            bool used[SIZE_X][SIZE_Y] = {};
+            static bool used[SIZE_X][SIZE_Y] = {};
+            memset(used, 0, sizeof(used));
             for (int x = 0; x < SIZE_X; x++)
             {
                 for (int y = 0; y < SIZE_Y; y++)

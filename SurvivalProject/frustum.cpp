@@ -37,6 +37,13 @@ void Frustum::Update(const glm::mat4& m)
     planes[5].normal.y = m[1][3] - m[1][2];
     planes[5].normal.z = m[2][3] - m[2][2];
     planes[5].distance = m[3][3] - m[3][2];
+
+    for (int i = 0; i < 6; i++)
+    {
+        float len = glm::length(planes[i].normal);
+        planes[i].normal /= len;
+        planes[i].distance /= len;
+    }
 }
 
 bool Frustum::IsBoxVisible(const glm::vec3& min, const glm::vec3& max)

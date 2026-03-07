@@ -17,6 +17,9 @@ public:
     static const int SIZE_Y = 256;
     static const int SIZE_Z = 16;
 
+    int minY = 0;
+    int maxY = SIZE_Y - 1;
+
     glm::ivec2 chunkPos;  // позиция в чанковой сетке (x,z)
 
     Chunk(int chunkX, int chunkZ, World* worldPtr);
@@ -29,7 +32,6 @@ public:
 
 private:
     bool IsBlockSolid(int x, int y, int z);
-	bool IsVisible(const glm::mat4& viewProj);
 
     // Добавляет прямоугольный quad (w x h блоков) с нужным тайлом
     void AddQuad(
