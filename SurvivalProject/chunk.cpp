@@ -148,10 +148,14 @@ void Chunk::BuildMesh()
     auto getBlock = [&](int x, int y, int z) -> BlockType {
         if (y < 0 || y >= SIZE_Y) return AIR;
         if (x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
-            return blocks[x][y][z]; // внутри чанка — берём напрямую
-        int worldX = x + chunkPos.x * SIZE_X;
-        int worldZ = z + chunkPos.y * SIZE_Z;
-        return world->GetBlock(worldX, y, worldZ); // граница — спрашиваем мир
+            return blocks[x][y][z];
+        if (x < 0)
+            return neighborNX ? neighborNX->blocks[x + SIZE_X][y][z] : AIR;
+        if (x >= SIZE_X)
+            return neighborPX ? neighborPX->blocks[x - SIZE_X][y][z] : AIR;
+        if (z < 0)
+            return neighborNZ ? neighborNZ->blocks[x][y][z + SIZE_Z] : AIR;
+        return neighborPZ ? neighborPZ->blocks[x][y][z - SIZE_Z] : AIR;
         };
 
     // Вспомогательная лямбда: возвращает тайл для данного блока и направления

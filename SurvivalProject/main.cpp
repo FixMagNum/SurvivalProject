@@ -182,11 +182,26 @@ int main()
         }
     }
 
-    // Построим меши во втором проходе, когда все чанки уже добавлены в мир.
+    // Заполняем соседей после того как все чанки созданы
     for (auto& chunk : world.chunks)
     {
-        chunk.BuildMesh();
+        int x = chunk.chunkPos.x;
+        int z = chunk.chunkPos.y;
+
+        auto find = [&](int cx, int cz) -> Chunk* {
+            auto it = world.chunkMap.find({ cx, cz });
+            return it != world.chunkMap.end() ? it->second : nullptr;
+            };
+
+        chunk.neighborPX = find(x + 1, z);
+        chunk.neighborNX = find(x - 1, z);
+        chunk.neighborPZ = find(x, z + 1);
+        chunk.neighborNZ = find(x, z - 1);
     }
+
+    // Построим меши во втором проходе, когда все чанки уже добавлены в мир.
+    for (auto& chunk : world.chunks)
+        chunk.BuildMesh();
 
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");

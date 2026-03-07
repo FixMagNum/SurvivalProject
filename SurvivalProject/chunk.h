@@ -20,6 +20,11 @@ public:
     int minY = 0;
     int maxY = SIZE_Y - 1;
 
+    Chunk* neighborPX = nullptr;
+    Chunk* neighborNX = nullptr;
+    Chunk* neighborPZ = nullptr;
+    Chunk* neighborNZ = nullptr;
+
     glm::ivec2 chunkPos;  // позиция в чанковой сетке (x,z)
 
     Chunk(int chunkX, int chunkZ, World* worldPtr);

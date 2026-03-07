@@ -14,18 +14,4 @@ BlockType World::GetBlock(int worldX, int worldY, int worldZ)
     int localX = worldX - chunkX * Chunk::SIZE_X;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
     return it->second->blocks[localX][worldY][localZ];
-
-    for (auto& chunk : chunks)
-    {
-        if (chunk.chunkPos.x == chunkX &&
-            chunk.chunkPos.y == chunkZ)
-        {
-            int localX = worldX - chunkX * Chunk::SIZE_X;
-            int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
-
-            return chunk.blocks[localX][worldY][localZ];
-        }
-    }
-
-    return AIR;
 }
