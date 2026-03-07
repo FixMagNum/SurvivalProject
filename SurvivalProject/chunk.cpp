@@ -46,6 +46,7 @@ Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
 
     VAO = 0;
     VBO = 0;
+    EBO = 0;
 }
 
 void Chunk::Generate()
@@ -163,13 +164,31 @@ void Chunk::BuildMesh()
         if (y < 0 || y >= SIZE_Y) return AIR;
         if (x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
             return blocks[x][y][z];
-        if (x < 0)
-            return neighborNX ? neighborNX->blocks[x + SIZE_X][y][z] : AIR;
-        if (x >= SIZE_X)
-            return neighborPX ? neighborPX->blocks[x - SIZE_X][y][z] : AIR;
-        if (z < 0)
-            return neighborNZ ? neighborNZ->blocks[x][y][z + SIZE_Z] : AIR;
-        return neighborPZ ? neighborPZ->blocks[x][y][z - SIZE_Z] : AIR;
+        if (x < 0 && neighborNX)
+        {
+            int lx = x + SIZE_X;
+            if (lx >= 0 && lx < SIZE_X && z >= 0 && z < SIZE_Z)
+                return neighborNX->blocks[lx][y][z];
+        }
+        if (x >= SIZE_X && neighborPX)
+        {
+            int lx = x - SIZE_X;
+            if (lx >= 0 && lx < SIZE_X && z >= 0 && z < SIZE_Z)
+                return neighborPX->blocks[lx][y][z];
+        }
+        if (z < 0 && neighborNZ)
+        {
+            int lz = z + SIZE_Z;
+            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X)
+                return neighborNZ->blocks[x][y][lz];
+        }
+        if (z >= SIZE_Z && neighborPZ)
+        {
+            int lz = z - SIZE_Z;
+            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X)
+                return neighborPZ->blocks[x][y][lz];
+        }
+        return AIR;
         };
 
     // Вспомогательная лямбда: возвращает тайл для данного блока и направления
