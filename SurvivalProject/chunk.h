@@ -39,7 +39,8 @@ public:
 
     glm::ivec2 chunkPos;  // позиция в чанковой сетке (x,z)
 
-    std::atomic<ChunkState> state{ChunkState::Empty};
+    std::atomic<ChunkState> state{ ChunkState::Empty };
+    std::atomic<bool> needsRebuild{ false }; // сосед достроился — перестроить наш меш
 
     Chunk(int chunkX, int chunkZ, World* worldPtr);
     

@@ -35,6 +35,7 @@ public:
     ~ThreadPool();
 
     void Enqueue(std::function<void()> task);
+    bool IsStopping() const { return stopping; }
 
 private:
     std::vector<std::thread>          workers;

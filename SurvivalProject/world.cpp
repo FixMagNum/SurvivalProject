@@ -1,6 +1,6 @@
 #include "world.h"
-#include <algorithm>
 #include <cmath>
+#include <algorithm>
 #include <thread>
 #include <chrono>
 
@@ -82,32 +82,9 @@ void World::ScheduleChunk(int cx, int cz)
         chunk->Generate();
         chunk->state.store(ChunkState::Generated);
 
-        // 2. Ждём пока все 4 соседа тоже будут сгенерированы.
-        // Это исключает race condition когда мы читаем пустые блоки соседа.
-        while (true)
-        {
-            bool allReady = true;
-            {
-                std::lock_guard<std::mutex> lock(chunkMapMutex);
-                const int dx[] = { 1, -1, 0,  0 };
-                const int dz[] = { 0,  0, 1, -1 };
-                for (int i = 0; i < 4; i++)
-                {
-                    auto it = chunkMap.find({ cx + dx[i], cz + dz[i] });
-                    if (it == chunkMap.end()) continue; // соседа нет — ок, просто пропустим
-                    auto s = it->second->state.load();
-                    if (s == ChunkState::Generating || s == ChunkState::Empty)
-                    {
-                        allReady = false;
-                        break;
-                    }
-                }
-            }
-            if (allReady) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+        if (threadPool.IsStopping()) return;
 
-        // 3. Устанавливаем соседей под мьютексом
+        // 2. Линкуем соседей (только тех кто уже существует в chunkMap)
         {
             std::lock_guard<std::mutex> lock(chunkMapMutex);
             LinkNeighbors(chunk);
@@ -115,11 +92,27 @@ void World::ScheduleChunk(int cx, int cz)
 
         chunk->state.store(ChunkState::MeshBuilding);
 
-        // 4. Строим CPU-данные меша
+        // 3. Строим меш с теми соседями что есть.
+        // Граница с ещё-не-готовыми соседями будет иметь артефакты,
+        // но они исправятся когда сосед сам достроится и вызовет ScheduleRebuild.
         chunk->GenerateMeshData();
-
-        // 5. Готов к загрузке на GPU
         chunk->state.store(ChunkState::MeshReady);
+
+        // 4. Просим соседей перестроить свои пограничные меши —
+        // теперь они смогут читать наши блоки корректно.
+        {
+            std::lock_guard<std::mutex> lock(chunkMapMutex);
+            const int ddx[] = { 1, -1, 0,  0 };
+            const int ddz[] = { 0,  0, 1, -1 };
+            for (int i = 0; i < 4; i++)
+            {
+                auto it = chunkMap.find({ cx + ddx[i], cz + ddz[i] });
+                if (it == chunkMap.end()) continue;
+                // Только если сосед уже полностью готов (Uploaded) — ставим флаг перестройки
+                if (it->second->state.load() == ChunkState::Uploaded)
+                    it->second->needsRebuild.store(true);
+            }
+        }
         });
 }
 
@@ -211,25 +204,33 @@ int World::UploadPendingChunks(int maxPerFrame)
 
     for (auto& [key, chunk] : chunkMap)
     {
-        if (uploaded >= maxPerFrame) break;
+        // Перестройка границ после того как сосед достроился
+        if (chunk->needsRebuild.exchange(false) &&
+            chunk->state.load() == ChunkState::Uploaded)
+        {
+            chunk->BuildMesh(); // уже в главном потоке — ОК
+        }
+
+        if (uploaded >= maxPerFrame) continue;
 
         if (chunk->state.load() == ChunkState::MeshReady)
         {
-            chunk->UploadToGPU(); // устанавливает state = Uploaded внутри
+            chunk->UploadToGPU();
             uploaded++;
         }
     }
     return uploaded;
 }
 
+// GetBlock / SetBlock / Raycast / RebuildChunkAt
 BlockType World::GetBlock(int worldX, int worldY, int worldZ)
 {
-    if (worldY < 0 || worldY >= Chunk::SIZE_Y)
-        return AIR;
+    if (worldY < 0 || worldY >= Chunk::SIZE_Y) return AIR;
 
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);
     int chunkZ = (int)floor((float)worldZ / Chunk::SIZE_Z);
 
+    std::lock_guard<std::mutex> lock(chunkMapMutex);
     auto it = chunkMap.find({ chunkX, chunkZ });
     if (it == chunkMap.end()) return AIR;
 
@@ -245,6 +246,7 @@ void World::SetBlock(int worldX, int worldY, int worldZ, BlockType type)
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);
     int chunkZ = (int)floor((float)worldZ / Chunk::SIZE_Z);
 
+    std::lock_guard<std::mutex> lock(chunkMapMutex);
     auto it = chunkMap.find({ chunkX, chunkZ });
     if (it == chunkMap.end()) return;
 
@@ -280,15 +282,9 @@ RaycastResult World::Raycast(glm::vec3 origin, glm::vec3 dir, float maxDistance)
     float tDeltaZ = (dir.z != 0) ? fabs(1.0f / dir.z) : 1e30f;
 
     // tMax: расстояние до ближайшей границы по каждой оси
-    float tMaxX = (dir.x >= 0)
-        ? ((floor(origin.x) + 1 - origin.x) * tDeltaX)
-        : ((origin.x - floor(origin.x)) * tDeltaX);
-    float tMaxY = (dir.y >= 0)
-        ? ((floor(origin.y) + 1 - origin.y) * tDeltaY)
-        : ((origin.y - floor(origin.y)) * tDeltaY);
-    float tMaxZ = (dir.z >= 0)
-        ? ((floor(origin.z) + 1 - origin.z) * tDeltaZ)
-        : ((origin.z - floor(origin.z)) * tDeltaZ);
+    float tMaxX = (dir.x >= 0) ? ((floor(origin.x) + 1 - origin.x) * tDeltaX) : ((origin.x - floor(origin.x)) * tDeltaX);
+    float tMaxY = (dir.y >= 0) ? ((floor(origin.y) + 1 - origin.y) * tDeltaY) : ((origin.y - floor(origin.y)) * tDeltaY);
+    float tMaxZ = (dir.z >= 0) ? ((floor(origin.z) + 1 - origin.z) * tDeltaZ) : ((origin.z - floor(origin.z)) * tDeltaZ);
 
     // Нормаль последней пересечённой грани
     int normX = 0, normY = 0, normZ = 0;
@@ -366,8 +362,8 @@ void World::RebuildChunkAt(int worldX, int worldY, int worldZ)
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
 
     // Если на границе — перестраиваем соседа
-    if (localX == 0)                    rebuild(chunkX - 1, chunkZ);
-    if (localX == Chunk::SIZE_X - 1)    rebuild(chunkX + 1, chunkZ);
-    if (localZ == 0)                    rebuild(chunkX, chunkZ - 1);
-    if (localZ == Chunk::SIZE_Z - 1)    rebuild(chunkX, chunkZ + 1);
+    if (localX == 0)                 rebuild(chunkX - 1, chunkZ);
+    if (localX == Chunk::SIZE_X - 1) rebuild(chunkX + 1, chunkZ);
+    if (localZ == 0)                 rebuild(chunkX, chunkZ - 1);
+    if (localZ == Chunk::SIZE_Z - 1) rebuild(chunkX, chunkZ + 1);
 }

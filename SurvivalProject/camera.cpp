@@ -3,7 +3,7 @@
 
 Camera::Camera(glm::vec3 position)
 {
-    int speedMultiplier = 3;
+    int speedMultiplier = 9;
     
     Position = position;
 

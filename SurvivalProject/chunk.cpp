@@ -60,7 +60,7 @@ void Chunk::Generate()
 
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (y == 0)           blocks[x][y][z] = STONE;
+                if (y == 0)                blocks[x][y][z] = STONE;
                 else if (y < surfaceY - 3) blocks[x][y][z] = STONE;
                 else if (y < surfaceY)     blocks[x][y][z] = DIRT;
                 else if (y == surfaceY)    blocks[x][y][z] = GRASS;
@@ -231,8 +231,8 @@ void Chunk::GenerateMeshData()
     // +Y  (top faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
-        static MaskCell mask[SIZE_X][SIZE_Z];
-        static bool     used[SIZE_X][SIZE_Z];
+        MaskCell mask[SIZE_X][SIZE_Z];
+        bool     used[SIZE_X][SIZE_Z];
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
@@ -285,8 +285,8 @@ void Chunk::GenerateMeshData()
     // -Y  (bottom faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
-        static MaskCell mask[SIZE_X][SIZE_Z];
-        static bool     used[SIZE_X][SIZE_Z];
+        MaskCell mask[SIZE_X][SIZE_Z];
+        bool     used[SIZE_X][SIZE_Z];
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
@@ -338,8 +338,8 @@ void Chunk::GenerateMeshData()
     // +X  (right faces)
     for (int x = 0; x < SIZE_X; x++)
     {
-        static MaskCell mask[SIZE_Z][SIZE_Y];
-        static bool     used[SIZE_Z][SIZE_Y];
+        MaskCell mask[SIZE_Z][SIZE_Y];
+        bool     used[SIZE_Z][SIZE_Y];
         memset(used, 0, sizeof(used));
 
         for (int z = 0; z < SIZE_Z; z++)
@@ -391,8 +391,8 @@ void Chunk::GenerateMeshData()
     // -X  (left faces)
     for (int x = 0; x < SIZE_X; x++)
     {
-        static MaskCell mask[SIZE_Z][SIZE_Y];
-        static bool     used[SIZE_Z][SIZE_Y];
+        MaskCell mask[SIZE_Z][SIZE_Y];
+        bool     used[SIZE_Z][SIZE_Y];
         memset(used, 0, sizeof(used));
 
         for (int z = 0; z < SIZE_Z; z++)
@@ -444,8 +444,8 @@ void Chunk::GenerateMeshData()
     // +Z  (front faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
-        static MaskCell mask[SIZE_X][SIZE_Y];
-        static bool     used[SIZE_X][SIZE_Y];
+        MaskCell mask[SIZE_X][SIZE_Y];
+        bool     used[SIZE_X][SIZE_Y];
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
@@ -497,8 +497,8 @@ void Chunk::GenerateMeshData()
     // -Z  (back faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
-        static MaskCell mask[SIZE_X][SIZE_Y];
-        static bool     used[SIZE_X][SIZE_Y];
+        MaskCell mask[SIZE_X][SIZE_Y];
+        bool     used[SIZE_X][SIZE_Y];
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
@@ -546,7 +546,6 @@ void Chunk::GenerateMeshData()
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
             }
     }
-
     // (конец GenerateMeshData — только CPU данные, GPU ещё не трогаем)
 }
 
