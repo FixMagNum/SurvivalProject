@@ -44,9 +44,16 @@ private:
         glm::vec3 origin,
         glm::vec3 axis1, int w,
         glm::vec3 axis2, int h,
-        int tileID, bool flipWinding);
+        int tileID, bool flipWinding,
+        float ao0, float ao1, float ao2, float ao3);
 
     unsigned int VAO, VBO, EBO;
+
+    // Считает AO для одной вершины (0..3, где 3 = светло)
+    int ComputeAO(int side1, int side2, int corner);
+
+    // AO хранится прямо в вершинах — добавляем 1 float к формату
+    // Новый stride будет 8 floats: pos(3) + uv(2) + tileOffset(2) + ao(1)
     std::vector<float> vertices;
     std::vector<uint32_t> indices;
 };

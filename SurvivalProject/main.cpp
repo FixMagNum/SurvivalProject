@@ -15,9 +15,11 @@ const char* vertexShaderSource = R"(
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;   // тайловые UV (0..w, 0..h)
 layout (location = 2) in vec2 aTileOffset; // смещение тайла в атласе
+layout (location = 3) in float aAO;
 
 out vec2 TexCoord;
 out vec2 TileOffset;
+out float AO;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -28,6 +30,7 @@ void main()
     gl_Position = projection * view * model * vec4(aPos, 1.0);
     TexCoord = aTexCoord;
     TileOffset = aTileOffset;
+    AO = aAO;
 }
 )";
 
@@ -37,6 +40,7 @@ out vec4 FragColor;
 
 in vec2 TexCoord;
 in vec2 TileOffset;
+in float AO;
 
 uniform sampler2D texture1;
 
@@ -46,7 +50,8 @@ void main()
 {
     // fract повторяет текстуру, затем масштабируем в пространство одного тайла в атласе
     vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
-    FragColor = texture(texture1, uv);
+    float light = mix(0.6, 1.0, AO); // 0.6 в тени, 1.0 на свету
+    FragColor = texture(texture1, uv) * vec4(vec3(light), 1.0);
 }
 )";
 
