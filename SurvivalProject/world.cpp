@@ -108,8 +108,11 @@ void World::ScheduleChunk(int cx, int cz)
             {
                 auto it = chunkMap.find({ cx + ddx[i], cz + ddz[i] });
                 if (it == chunkMap.end()) continue;
-                // Только если сосед уже полностью готов (Uploaded) — ставим флаг перестройки
-                if (it->second->state.load() == ChunkState::Uploaded)
+                auto s = it->second->state.load();
+                // Перестраиваем соседа если он уже показывается (Uploaded)
+                // или уже собран но ещё не загружен (MeshReady) — в этом случае
+                // он всё равно скоро перегрузится через UploadToGPU
+                if (s == ChunkState::Uploaded || s == ChunkState::MeshReady)
                     it->second->needsRebuild.store(true);
             }
         }
@@ -141,23 +144,37 @@ void World::LinkNeighbors(Chunk* chunk)
 void World::Update(int playerChunkX, int playerChunkZ)
 {
     // Подгружаем новые чанки в радиусе LOAD_RADIUS
+    // Сортируем по дистанции — ближние сначала, лимит 16 за вызов
+    // (иначе при первом запуске 400+ задач спамятся разом → фриз)
+    struct PendingChunk { int cx, cz, dist2; };
+    std::vector<PendingChunk> pending;
+
     for (int dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++)
         for (int dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz++)
         {
-            if (dx * dx + dz * dz > LOAD_RADIUS * LOAD_RADIUS) continue; // круг
+            int dist2 = dx * dx + dz * dz;
+            if (dist2 > LOAD_RADIUS * LOAD_RADIUS) continue;
 
             int cx = playerChunkX + dx;
             int cz = playerChunkZ + dz;
 
-            bool exists = false;
             {
                 std::lock_guard<std::mutex> lock(chunkMapMutex);
-                exists = chunkMap.count({ cx, cz }) > 0;
+                if (chunkMap.count({ cx, cz })) continue;
             }
-
-            if (!exists)
-                ScheduleChunk(cx, cz);
+            pending.push_back({ cx, cz, dist2 });
         }
+
+    std::sort(pending.begin(), pending.end(),
+        [](const PendingChunk& a, const PendingChunk& b) { return a.dist2 < b.dist2; });
+
+    int scheduled = 0;
+    for (auto& p : pending)
+    {
+        if (scheduled >= 16) break;
+        ScheduleChunk(p.cx, p.cz);
+        scheduled++;
+    }
 
     // Выгружаем дальние чанки
     std::vector<ChunkKey> toRemove;
@@ -200,18 +217,32 @@ void World::Update(int playerChunkX, int playerChunkZ)
 int World::UploadPendingChunks(int maxPerFrame)
 {
     int uploaded = 0;
+    // Бюджет времени — не тратим больше 4ms на загрузку за кадр
+    auto frameStart = std::chrono::steady_clock::now();
+    constexpr int BUDGET_MS = 4;
+
     std::lock_guard<std::mutex> lock(chunkMapMutex);
 
     for (auto& [key, chunk] : chunkMap)
     {
-        // Перестройка границ после того как сосед достроился
+        // Если сосед попросил перестроить — отправляем в фоновый поток
         if (chunk->needsRebuild.exchange(false) &&
             chunk->state.load() == ChunkState::Uploaded)
         {
-            chunk->BuildMesh(); // уже в главном потоке — ОК
+            chunk->state.store(ChunkState::MeshBuilding);
+            Chunk* ptr = chunk.get();
+            threadPool.Enqueue([ptr] {
+                ptr->GenerateMeshData();
+                ptr->state.store(ChunkState::MeshReady);
+                });
         }
 
         if (uploaded >= maxPerFrame) continue;
+
+        // Проверяем бюджет времени
+        auto elapsed = std::chrono::steady_clock::now() - frameStart;
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= BUDGET_MS)
+            break;
 
         if (chunk->state.load() == ChunkState::MeshReady)
         {
