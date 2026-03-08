@@ -55,7 +55,7 @@ void Chunk::Generate()
             float worldZ = z + chunkPos.y * SIZE_Z;
 
             float noiseVal = noise.GetNoise(worldX, worldZ);
-            int surfaceY = (int)(60.0f + noiseVal * 120.0f);
+            int surfaceY = (int)(60.0f + noiseVal * 60.0f);
             surfaceY = std::clamp(surfaceY, 1, SIZE_Y - 2);
 
             for (int y = 0; y < SIZE_Y; y++)
@@ -155,6 +155,18 @@ void Chunk::BuildMesh()
 {
     vertices.clear();
     indices.clear();
+
+    // Пересчитываем minY/maxY — они могли устареть после SetBlock
+    minY = SIZE_Y;
+    maxY = 0;
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+            for (int y = 0; y < SIZE_Y; y++)
+                if (blocks[x][y][z] != AIR) {
+                    minY = std::min(minY, y);
+                    maxY = std::max(maxY, y);
+                }
+    if (minY > maxY) return; // чанк пустой
 
     // getBlock с поддержкой соседних чанков
     auto getBlock = [&](int x, int y, int z) -> BlockType {
