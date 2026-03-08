@@ -2,6 +2,8 @@
 #include "chunk.h"
 #include "world.h"
 #include "block.h"
+#include "FastNoiseLite.h"
+#include <algorithm>
 
 constexpr int ATLAS_SIZE = 16;
 constexpr float TILE_SIZE = 1.0f / ATLAS_SIZE;
@@ -49,18 +51,45 @@ Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
     EBO = 0;
 }
 
+// Генерация мира
 void Chunk::Generate()
 {
+    // Инициализация шума — seed можно менять для разных миров
+    FastNoiseLite noise;
+    noise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    noise.SetFrequency(0.005f);  // чем меньше — тем плавнее холмы
+    noise.SetSeed(1337);
+
     for (int x = 0; x < SIZE_X; x++)
+    {
         for (int z = 0; z < SIZE_Z; z++)
-			for (int y = 0; y < SIZE_Y; y++)
-                if (y < 255)
-                    blocks[x][y][z] = DIRT;
-                else if (y == 255)
-                    blocks[x][y][z] = GRASS;
+        {
+            // Мировые координаты для корректного стыка между чанками
+            float worldX = x + chunkPos.x * SIZE_X;
+            float worldZ = z + chunkPos.y * SIZE_Z;
+
+            // Шум возвращает -1..1, переводим в высоту 60..140
+            float noiseVal = noise.GetNoise(worldX, worldZ);
+            int surfaceY = (int)(60.0f + noiseVal * 120.0f);
+            surfaceY = std::clamp(surfaceY, 1, SIZE_Y - 2);
+
+            for (int y = 0; y < SIZE_Y; y++)
+            {
+                if (y == 0)
+                    blocks[x][y][z] = STONE;       // дно — камень
+                else if (y < surfaceY - 3)
+                    blocks[x][y][z] = STONE;        // глубина — камень
+                else if (y < surfaceY)
+                    blocks[x][y][z] = DIRT;         // под поверхностью — грязь
+                else if (y == surfaceY)
+                    blocks[x][y][z] = GRASS;        // поверхность — трава
                 else
                     blocks[x][y][z] = AIR;
+            }
+        }
+    }
 
+    // Пересчёт minY/maxY
     minY = SIZE_Y; maxY = 0;
     for (int x = 0; x < SIZE_X; x++)
         for (int z = 0; z < SIZE_Z; z++)
