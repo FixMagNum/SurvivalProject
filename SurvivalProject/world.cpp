@@ -1,5 +1,226 @@
 #include "world.h"
+#include <algorithm>
 #include <cmath>
+#include <thread>
+#include <chrono>
+
+// ThreadPool
+ThreadPool::ThreadPool(int numThreads)
+{
+    for (int i = 0; i < numThreads; i++)
+    {
+        workers.emplace_back([this] {
+            while (true)
+            {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lock(mutex);
+                    cv.wait(lock, [this] { return stopping || !tasks.empty(); });
+                    if (stopping && tasks.empty()) return;
+                    task = std::move(tasks.front());
+                    tasks.pop();
+                }
+                task();
+            }
+            });
+    }
+}
+
+ThreadPool::~ThreadPool()
+{
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        stopping = true;
+    }
+    cv.notify_all();
+    for (auto& w : workers) w.join();
+}
+
+void ThreadPool::Enqueue(std::function<void()> task)
+{
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        tasks.push(std::move(task));
+    }
+    cv.notify_one();
+}
+
+// World
+World::World()
+// Используем N-1 потоков чтобы не перегружать главный
+    : threadPool(std::max(1, (int)std::thread::hardware_concurrency() - 1))
+{
+}
+
+World::~World()
+{
+    // ThreadPool останавливается в деструкторе — дождёмся всех задач
+    // Чанки удалятся автоматически через unique_ptr
+}
+
+void World::ScheduleChunk(int cx, int cz)
+{
+    // Создаём чанк под мьютексом
+    Chunk* chunk = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(chunkMapMutex);
+
+        ChunkKey key{ cx, cz };
+        if (chunkMap.count(key)) return; // уже есть
+
+        auto uptr = std::make_unique<Chunk>(cx, cz, this);
+        chunk = uptr.get();
+        chunkMap[key] = std::move(uptr);
+    }
+
+    chunk->state.store(ChunkState::Generating);
+
+    // Отправляем в рабочий поток
+    threadPool.Enqueue([this, chunk, cx, cz] {
+
+        // 1. Генерируем блоки
+        chunk->Generate();
+        chunk->state.store(ChunkState::Generated);
+
+        // 2. Ждём пока все 4 соседа тоже будут сгенерированы.
+        // Это исключает race condition когда мы читаем пустые блоки соседа.
+        while (true)
+        {
+            bool allReady = true;
+            {
+                std::lock_guard<std::mutex> lock(chunkMapMutex);
+                const int dx[] = { 1, -1, 0,  0 };
+                const int dz[] = { 0,  0, 1, -1 };
+                for (int i = 0; i < 4; i++)
+                {
+                    auto it = chunkMap.find({ cx + dx[i], cz + dz[i] });
+                    if (it == chunkMap.end()) continue; // соседа нет — ок, просто пропустим
+                    auto s = it->second->state.load();
+                    if (s == ChunkState::Generating || s == ChunkState::Empty)
+                    {
+                        allReady = false;
+                        break;
+                    }
+                }
+            }
+            if (allReady) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        // 3. Устанавливаем соседей под мьютексом
+        {
+            std::lock_guard<std::mutex> lock(chunkMapMutex);
+            LinkNeighbors(chunk);
+        }
+
+        chunk->state.store(ChunkState::MeshBuilding);
+
+        // 4. Строим CPU-данные меша
+        chunk->GenerateMeshData();
+
+        // 5. Готов к загрузке на GPU
+        chunk->state.store(ChunkState::MeshReady);
+        });
+}
+
+void World::LinkNeighbors(Chunk* chunk)
+{
+    int cx = chunk->chunkPos.x;
+    int cz = chunk->chunkPos.y;
+
+    auto find = [&](int x, int z) -> Chunk* {
+        auto it = chunkMap.find({ x, z });
+        return it != chunkMap.end() ? it->second.get() : nullptr;
+        };
+
+    chunk->neighborPX = find(cx + 1, cz);
+    chunk->neighborNX = find(cx - 1, cz);
+    chunk->neighborPZ = find(cx, cz + 1);
+    chunk->neighborNZ = find(cx, cz - 1);
+
+    // Сообщаем соседям о новом чанке
+    if (chunk->neighborPX) chunk->neighborPX->neighborNX = chunk;
+    if (chunk->neighborNX) chunk->neighborNX->neighborPX = chunk;
+    if (chunk->neighborPZ) chunk->neighborPZ->neighborNZ = chunk;
+    if (chunk->neighborNZ) chunk->neighborNZ->neighborPZ = chunk;
+}
+
+void World::Update(int playerChunkX, int playerChunkZ)
+{
+    // Подгружаем новые чанки в радиусе LOAD_RADIUS
+    for (int dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++)
+        for (int dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz++)
+        {
+            if (dx * dx + dz * dz > LOAD_RADIUS * LOAD_RADIUS) continue; // круг
+
+            int cx = playerChunkX + dx;
+            int cz = playerChunkZ + dz;
+
+            bool exists = false;
+            {
+                std::lock_guard<std::mutex> lock(chunkMapMutex);
+                exists = chunkMap.count({ cx, cz }) > 0;
+            }
+
+            if (!exists)
+                ScheduleChunk(cx, cz);
+        }
+
+    // Выгружаем дальние чанки
+    std::vector<ChunkKey> toRemove;
+    {
+        std::lock_guard<std::mutex> lock(chunkMapMutex);
+        for (auto& [key, chunk] : chunkMap)
+        {
+            int dx = key.x - playerChunkX;
+            int dz = key.z - playerChunkZ;
+            if (dx * dx + dz * dz > UNLOAD_RADIUS * UNLOAD_RADIUS)
+            {
+                // Не удаляем чанки которые ещё обрабатываются в потоке
+                auto s = chunk->state.load();
+                if (s == ChunkState::Uploaded || s == ChunkState::Empty)
+                    toRemove.push_back(key);
+            }
+        }
+    }
+
+    // FreeGPU и удаление — только из главного потока (здесь мы в нём)
+    for (auto& key : toRemove)
+    {
+        std::lock_guard<std::mutex> lock(chunkMapMutex);
+        auto it = chunkMap.find(key);
+        if (it == chunkMap.end()) continue;
+
+        Chunk* chunk = it->second.get();
+
+        // Отвязываем у соседей
+        if (chunk->neighborPX) chunk->neighborPX->neighborNX = nullptr;
+        if (chunk->neighborNX) chunk->neighborNX->neighborPX = nullptr;
+        if (chunk->neighborPZ) chunk->neighborPZ->neighborNZ = nullptr;
+        if (chunk->neighborNZ) chunk->neighborNZ->neighborPZ = nullptr;
+
+        chunk->FreeGPU();
+        chunkMap.erase(it);
+    }
+}
+
+int World::UploadPendingChunks(int maxPerFrame)
+{
+    int uploaded = 0;
+    std::lock_guard<std::mutex> lock(chunkMapMutex);
+
+    for (auto& [key, chunk] : chunkMap)
+    {
+        if (uploaded >= maxPerFrame) break;
+
+        if (chunk->state.load() == ChunkState::MeshReady)
+        {
+            chunk->UploadToGPU(); // устанавливает state = Uploaded внутри
+            uploaded++;
+        }
+    }
+    return uploaded;
+}
 
 BlockType World::GetBlock(int worldX, int worldY, int worldZ)
 {
@@ -127,9 +348,15 @@ void World::RebuildChunkAt(int worldX, int worldY, int worldZ)
 
     // Перестраиваем основной чанк
     auto rebuild = [&](int cx, int cz) {
+        // BuildMesh уже thread-safe читает данные, но GPU — только main thread
+        // Здесь мы всегда в main thread (вызывается из обработки клика)
+        std::lock_guard<std::mutex> lock(chunkMapMutex);
         auto it = chunkMap.find({ cx, cz });
-        if (it != chunkMap.end())
+        if (it != chunkMap.end() &&
+            it->second->state.load() == ChunkState::Uploaded)
+        {
             it->second->BuildMesh();
+        }
         };
 
     rebuild(chunkX, chunkZ);

@@ -193,34 +193,8 @@ int main()
     World world;
     Frustum frustum;
 
-    const int xMin = -30, xMax = 1;
-    const int zMin = -30, zMax = 1;
-    world.chunks.reserve((xMax - xMin + 1) * (zMax - zMin + 1));
-
-    for (int x = xMin; x <= xMax; x++)
-        for (int z = zMin; z <= zMax; z++)
-        {
-            world.chunks.emplace_back(x, z, &world);
-            world.chunkMap[{x, z}] = &world.chunks.back();
-            world.chunks.back().Generate();
-        }
-
-    for (auto& chunk : world.chunks)
-    {
-        int x = chunk.chunkPos.x;
-        int z = chunk.chunkPos.y;
-        auto find = [&](int cx, int cz) -> Chunk* {
-            auto it = world.chunkMap.find({ cx, cz });
-            return it != world.chunkMap.end() ? it->second : nullptr;
-            };
-        chunk.neighborPX = find(x + 1, z);
-        chunk.neighborNX = find(x - 1, z);
-        chunk.neighborPZ = find(x, z + 1);
-        chunk.neighborNZ = find(x, z - 1);
-    }
-
-    for (auto& chunk : world.chunks)
-        chunk.BuildMesh();
+    // Запускаем начальную генерацию через Update
+    world.Update(0, 0);
 
     // Uniform locations
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -233,6 +207,9 @@ int main()
     int lastVisibleChunks = 0;
 
     float deltaTime = 0.0f, lastFrame = 0.0f;
+
+    // Текущий чанк игрока (для обнаружения смены)
+    int lastPlayerCX = INT_MIN, lastPlayerCZ = INT_MIN;
 
     // Game loop
     while (!glfwWindowShouldClose(window))
@@ -262,6 +239,20 @@ int main()
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_D, deltaTime);
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_SPACE, deltaTime);
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_LEFT_SHIFT, deltaTime);
+
+        // Динамическая подгрузка
+        int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
+        int playerCZ = (int)floor(camera.Position.z / Chunk::SIZE_Z);
+
+        // Update вызываем только когда игрок сменил чанк (чтобы не спамить)
+        if (playerCX != lastPlayerCX || playerCZ != lastPlayerCZ) {
+            world.Update(playerCX, playerCZ);
+            lastPlayerCX = playerCX;
+            lastPlayerCZ = playerCZ;
+        }
+
+        // Загружаем на GPU не более 4 чанков за кадр (без фризов)
+        world.UploadPendingChunks(4);
 
         // Raycast + клики мыши
         // Дальность взаимодействия 6 блоков (как в Minecraft)
@@ -304,14 +295,13 @@ int main()
             }
         }
 
-        // Матрицы
+        // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(75.0f), resolutionX / resolutionY, 0.1f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
-        // Рендер блоков
         glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -325,12 +315,15 @@ int main()
         glBindTexture(GL_TEXTURE_2D, textureID);
 
         int visibleChunks = 0;
-        for (auto& chunk : world.chunks)
         {
-            if (frustum.IsBoxVisible(chunk.bounds.min, chunk.bounds.max))
+            std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+            for (auto& [key, chunk] : world.chunkMap)
             {
-                chunk.Draw();
-                visibleChunks++;
+                if (chunk->state.load() != ChunkState::Uploaded) continue;
+                if (frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) {
+                    chunk->Draw();
+                    visibleChunks++;
+                }
             }
         }
         lastVisibleChunks = visibleChunks;

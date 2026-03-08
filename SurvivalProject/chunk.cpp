@@ -151,7 +151,8 @@ void Chunk::AddQuad(
     }
 }
 
-void Chunk::BuildMesh()
+// GenerateMeshData — только CPU работа, можно вызывать из рабочего потока
+void Chunk::GenerateMeshData()
 {
     vertices.clear();
     indices.clear();
@@ -227,7 +228,7 @@ void Chunk::BuildMesh()
         bool empty() const { return tileID < 0; }
     };
 
-    // +Y (top faces)
+    // +Y  (top faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
         static MaskCell mask[SIZE_X][SIZE_Z];
@@ -281,7 +282,7 @@ void Chunk::BuildMesh()
             }
     }
 
-    // -Y (bottom faces)
+    // -Y  (bottom faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
         static MaskCell mask[SIZE_X][SIZE_Z];
@@ -334,7 +335,7 @@ void Chunk::BuildMesh()
             }
     }
 
-    // +X (right faces)
+    // +X  (right faces)
     for (int x = 0; x < SIZE_X; x++)
     {
         static MaskCell mask[SIZE_Z][SIZE_Y];
@@ -387,7 +388,7 @@ void Chunk::BuildMesh()
             }
     }
 
-    // -X (left faces)
+    // -X  (left faces)
     for (int x = 0; x < SIZE_X; x++)
     {
         static MaskCell mask[SIZE_Z][SIZE_Y];
@@ -440,7 +441,7 @@ void Chunk::BuildMesh()
             }
     }
 
-    // +Z (front faces)
+    // +Z  (front faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
         static MaskCell mask[SIZE_X][SIZE_Y];
@@ -493,7 +494,7 @@ void Chunk::BuildMesh()
             }
     }
 
-    // -Z (back faces)
+    // -Z  (back faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
         static MaskCell mask[SIZE_X][SIZE_Y];
@@ -546,7 +547,12 @@ void Chunk::BuildMesh()
             }
     }
 
-    // Загрузка на GPU
+    // (конец GenerateMeshData — только CPU данные, GPU ещё не трогаем)
+}
+
+// UploadToGPU — ТОЛЬКО из главного потока (OpenGL не thread-safe)
+void Chunk::UploadToGPU()
+{
     if (VAO == 0)
     {
         glGenVertexArrays(1, &VAO);
@@ -575,6 +581,29 @@ void Chunk::BuildMesh()
 
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
     glEnableVertexAttribArray(3);
+
+    glBindVertexArray(0);
+
+    state.store(ChunkState::Uploaded);
+}
+
+// BuildMesh — совместимый метод для rebuild после break/place блока.
+// Вызывается только из главного потока.
+void Chunk::BuildMesh()
+{
+    GenerateMeshData();
+    UploadToGPU();
+}
+
+// FreeGPU — освобождает OpenGL объекты (только из главного потока)
+void Chunk::FreeGPU()
+{
+    if (VAO) { glDeleteVertexArrays(1, &VAO); VAO = 0; }
+    if (VBO) { glDeleteBuffers(1, &VBO);      VBO = 0; }
+    if (EBO) { glDeleteBuffers(1, &EBO);      EBO = 0; }
+    vertices.clear();
+    indices.clear();
+    state.store(ChunkState::Empty);
 }
 
 void Chunk::Draw()
