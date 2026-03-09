@@ -3,6 +3,53 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+
+static std::string ChunkSavePath(int cx, int cz)
+{
+    return "saves/chunk_" + std::to_string(cx) + "_" + std::to_string(cz) + ".bin";
+}
+
+void World::SaveChunk(Chunk* chunk)
+{
+    if (chunk->modifiedBlocks.empty()) return;
+
+    std::filesystem::create_directories("saves");
+
+    std::ofstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y),
+        std::ios::binary);
+    if (!f) return;
+
+    for (auto& [key, type] : chunk->modifiedBlocks)
+    {
+        int x = std::get<0>(key);
+        int y = std::get<1>(key);
+        int z = std::get<2>(key);
+        f.write((char*)&x, sizeof(int));
+        f.write((char*)&y, sizeof(int));
+        f.write((char*)&z, sizeof(int));
+        f.write((char*)&type, sizeof(uint8_t));
+    }
+}
+
+void World::LoadChunkDelta(Chunk* chunk)
+{
+    std::ifstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y),
+        std::ios::binary);
+    if (!f) return; // файла нет — чанк нетронутый, всё ок
+
+    int x, y, z;
+    uint8_t type;
+    while (f.read((char*)&x, sizeof(int))
+        && f.read((char*)&y, sizeof(int))
+        && f.read((char*)&z, sizeof(int))
+        && f.read((char*)&type, sizeof(uint8_t)))
+    {
+        chunk->blocks[x][y][z] = (BlockType)type;
+        chunk->modifiedBlocks[{x, y, z}] = (BlockType)type;
+    }
+}
 
 // ThreadPool
 ThreadPool::ThreadPool(int numThreads)
@@ -54,8 +101,12 @@ World::World()
 
 World::~World()
 {
-    // ThreadPool останавливается в деструкторе — дождёмся всех задач
-    // Чанки удалятся автоматически через unique_ptr
+    // Сначала останавливаем пул — ждём завершения всех задач
+    // (ThreadPool::~ThreadPool сам это делает)
+
+    // Затем сохраняем все загруженные чанки
+    for (auto& [key, chunk] : chunkMap)
+        SaveChunk(chunk.get());
 }
 
 void World::ScheduleChunk(int cx, int cz)
@@ -79,6 +130,7 @@ void World::ScheduleChunk(int cx, int cz)
     threadPool.Enqueue([this, chunk, cx, cz] {
         // Только генерируем блоки — всё остальное через UploadPendingChunks
         chunk->Generate();
+        LoadChunkDelta(chunk); // накладываем сохранённые изменения поверх
         chunk->state.store(ChunkState::Generated);
 
         // Линкуем соседей сразу — они тоже начнут видеть нас
@@ -195,6 +247,7 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
         if (it == chunkMap.end()) continue;
 
         Chunk* chunk = it->second.get();
+        SaveChunk(chunk); // сохраняем перед удалением
 
         // Отвязываем у соседей
         if (chunk->neighborPX) chunk->neighborPX->neighborNX = nullptr;
@@ -312,6 +365,9 @@ void World::SetBlock(int worldX, int worldY, int worldZ, BlockType type)
     int localX = worldX - chunkX * Chunk::SIZE_X;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
     it->second->blocks[localX][worldY][localZ] = type;
+
+    // Запоминаем изменение
+    it->second->modifiedBlocks[{localX, worldY, localZ}] = type;
 }
 
 // DDA (Digital Differential Analyzer) raycast по блокам

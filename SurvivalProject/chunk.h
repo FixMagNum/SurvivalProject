@@ -3,6 +3,8 @@
 #include <atomic>
 #include <glm/glm.hpp>
 #include <cstdint>
+#include <map>
+#include <tuple>
 #include "block.h"
 #include "aabb.h"
 
@@ -41,6 +43,8 @@ public:
 
     std::atomic<ChunkState> state{ ChunkState::Empty };
     std::atomic<bool> needsRebuild{ false }; // сосед достроился — перестроить наш меш
+    
+    std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
 
     Chunk(int chunkX, int chunkZ, World* worldPtr);
     

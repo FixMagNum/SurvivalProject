@@ -24,8 +24,8 @@ struct ChunkKeyHash {
 // Результат рейкаста
 struct RaycastResult {
     bool  hit = false;
-    int   worldX, worldY, worldZ;   // координаты блока который hit
-    int   normalX, normalY, normalZ; // нормаль грани (куда ставить блок)
+    int   worldX = 0, worldY = 0, worldZ = 0;   // координаты блока который hit
+    int   normalX = 0, normalY = 0, normalZ = 0; // нормаль грани (куда ставить блок)
 };
 
 // Простой thread pool — N рабочих потоков берут задачи из очереди
@@ -72,6 +72,9 @@ public:
     void          SetBlock(int worldX, int worldY, int worldZ, BlockType type);
     RaycastResult Raycast(glm::vec3 origin, glm::vec3 direction, float maxDistance);
     void          RebuildChunkAt(int worldX, int worldY, int worldZ);
+
+    void SaveChunk(Chunk* chunk);
+    void LoadChunkDelta(Chunk* chunk);
 
     // Для рендера — итерируем по всем загруженным чанкам
     // Мьютекс нужен т.к. рабочие потоки меняют chunkMap
