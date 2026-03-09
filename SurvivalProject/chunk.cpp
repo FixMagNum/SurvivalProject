@@ -18,7 +18,8 @@ BlockData blockDatabase[] =
     { 0, 0, 0 },                            // AIR
     { Tile(2,0), Tile(0,0), Tile(1,0) },    // GRASS
     { Tile(0,0), Tile(0,0), Tile(0,0) },    // DIRT
-    { Tile(3,0), Tile(3,0), Tile(3,0) }     // STONE
+    { Tile(3,0), Tile(3,0), Tile(3,0) },    // STONE
+	{ Tile(5,0), Tile(5,0), Tile(4,0) },    // OAK_PLANKS
 };
 
 Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)

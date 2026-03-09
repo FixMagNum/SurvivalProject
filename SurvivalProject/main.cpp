@@ -289,7 +289,7 @@ int main()
 
                 if (!insidePlayer && world.GetBlock(placeX, placeY, placeZ) == AIR)
                 {
-                    world.SetBlock(placeX, placeY, placeZ, DIRT);
+                    world.SetBlock(placeX, placeY, placeZ, OAK_PLANKS);
                     world.RebuildChunkAt(placeX, placeY, placeZ);
                 }
             }

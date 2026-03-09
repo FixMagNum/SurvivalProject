@@ -138,12 +138,11 @@ void World::Update(int playerChunkX, int playerChunkZ)
     std::sort(pending.begin(), pending.end(),
         [](const PendingChunk& a, const PendingChunk& b) { return a.dist2 < b.dist2; });
 
-    int scheduled = 0;
     for (auto& p : pending)
     {
-        if (scheduled >= 16) break;
+        // Не спамим очередь — если задач уже много, подождём следующего кадра
+        if (threadPool.QueueSize() > 32) break;
         ScheduleChunk(p.cx, p.cz);
-        scheduled++;
     }
 
     // Выгружаем дальние чанки

@@ -34,6 +34,11 @@ public:
     ThreadPool(int numThreads);
     ~ThreadPool();
 
+    size_t QueueSize() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return tasks.size();
+    }
+
     void Enqueue(std::function<void()> task);
     bool IsStopping() const { return stopping; }
 
