@@ -85,6 +85,18 @@ void World::ScheduleChunk(int cx, int cz)
         {
             std::lock_guard<std::mutex> lock(chunkMapMutex);
             LinkNeighbors(chunk);
+
+            // Помечаем уже загруженных соседей для перестройки
+            // чтобы они убрали лишние грани на границе с новым чанком
+            auto markRebuild = [](Chunk* neighbor) {
+                if (neighbor && neighbor->state.load() == ChunkState::Uploaded)
+                    neighbor->needsRebuild.store(true);
+                };
+
+            markRebuild(chunk->neighborPX);
+            markRebuild(chunk->neighborNX);
+            markRebuild(chunk->neighborPZ);
+            markRebuild(chunk->neighborNZ);
         }
         });
 }
