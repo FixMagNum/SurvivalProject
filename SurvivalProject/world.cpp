@@ -111,12 +111,9 @@ void World::LinkNeighbors(Chunk* chunk)
     if (chunk->neighborNZ) chunk->neighborNZ->neighborPZ = chunk;
 }
 
-void World::Update(int playerChunkX, int playerChunkZ)
+void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
 {
-    // Подгружаем новые чанки в радиусе LOAD_RADIUS
-    // Сортируем по дистанции — ближние сначала, лимит 16 за вызов
-    // (иначе при первом запуске 400+ задач спамятся разом → фриз)
-    struct PendingChunk { int cx, cz, dist2; };
+    struct PendingChunk { int cx, cz; float priority; };
     std::vector<PendingChunk> pending;
 
     for (int dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++)
@@ -132,15 +129,30 @@ void World::Update(int playerChunkX, int playerChunkZ)
                 std::lock_guard<std::mutex> lock(chunkMapMutex);
                 if (chunkMap.count({ cx, cz })) continue;
             }
-            pending.push_back({ cx, cz, dist2 });
+
+            // Нормализуем вектор к чанку
+            float len = sqrt((float)(dx * dx + dz * dz));
+            float ndx = (len > 0) ? dx / len : 0.0f;
+            float ndz = (len > 0) ? dz / len : 0.0f;
+
+            // dot: 1.0 = прямо перед игроком, -1.0 = за спиной
+            float dot = ndx * cameraFront.x + ndz * cameraFront.z;
+
+            // Меньше priority = раньше загрузится
+            // Чанки перед игроком получают бонус до -BIAS
+            constexpr float BIAS = 8.0f;
+            float priority = (float)dist2 - dot * BIAS;
+
+            pending.push_back({ cx, cz, priority });
         }
 
     std::sort(pending.begin(), pending.end(),
-        [](const PendingChunk& a, const PendingChunk& b) { return a.dist2 < b.dist2; });
+        [](const PendingChunk& a, const PendingChunk& b) {
+            return a.priority < b.priority;
+        });
 
     for (auto& p : pending)
     {
-        // Не спамим очередь — если задач уже много, подождём следующего кадра
         if (threadPool.QueueSize() > 32) break;
         ScheduleChunk(p.cx, p.cz);
     }

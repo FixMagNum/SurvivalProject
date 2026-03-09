@@ -62,7 +62,7 @@ public:
 
     // Главный метод — вызывать каждый кадр из main
     // playerChunkX/Z — позиция игрока в чанковых координатах
-    void Update(int playerChunkX, int playerChunkZ);
+    void Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront);
 
     // Загружает на GPU чанки со статусом MeshReady (вызывать из main thread)
     // Возвращает количество загруженных чанков за этот кадр

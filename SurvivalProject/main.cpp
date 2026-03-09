@@ -164,6 +164,7 @@ int main()
     glBindVertexArray(0);
 
     // OpenGL состояние
+	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
@@ -194,7 +195,7 @@ int main()
     Frustum frustum;
 
     // Запускаем начальную генерацию через Update
-    world.Update(0, 0);
+    world.Update(0, 0, camera.Front);
 
     // Uniform locations
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -246,7 +247,7 @@ int main()
 
         // Update вызываем только когда игрок сменил чанк (чтобы не спамить)
         if (playerCX != lastPlayerCX || playerCZ != lastPlayerCZ) {
-            world.Update(playerCX, playerCZ);
+            world.Update(playerCX, playerCZ, camera.Front);
             lastPlayerCX = playerCX;
             lastPlayerCZ = playerCZ;
         }
