@@ -29,9 +29,9 @@ uniform mat4 projection;
 void main()
 {
     gl_Position = projection * view * model * vec4(aPos, 1.0);
-    TexCoord    = aTexCoord;
-    TileOffset  = aTileOffset;
-    AO          = aAO;
+    TexCoord = aTexCoord;
+    TileOffset = aTileOffset;
+    AO = aAO;
 }
 )";
 
@@ -55,11 +55,16 @@ void main()
 }
 )";
 
-// Шейдер крестика (2D, NDC координаты)
 const char* crosshairVertSrc = R"(
 #version 330 core
 layout (location = 0) in vec2 aPos;
-void main() { gl_Position = vec4(aPos, 0.0, 2.0); }
+uniform vec2 uScreenSize; // ширина и высота в пикселях
+void main()
+{
+    // aPos задан в пикселях от центра, переводим в NDC
+    vec2 pos = aPos / uScreenSize * 2.0;
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
 )";
 
 const char* crosshairFragSrc = R"(
@@ -71,9 +76,24 @@ void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
 // Глобальные переменные
 Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 
+static float g_width = 800.0f;
+static float g_height = 600.0f;
+
+static bool g_fullscreen = false;
+static int  g_windowedX = 100, g_windowedY = 100;
+static int  g_windowedW = 800, g_windowedH = 600;
+
 // Флаги кликов мыши (устанавливаются в callback, читаются в game loop)
 static bool g_leftClick = false;
 static bool g_rightClick = false;
+
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    if (width == 0 || height == 0) return; // минимизация окна
+    g_width = (float)width;
+    g_height = (float)height;
+    glViewport(0, 0, width, height);
+}
 
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -96,6 +116,34 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     {
         if (button == GLFW_MOUSE_BUTTON_LEFT)  g_leftClick = true;
         if (button == GLFW_MOUSE_BUTTON_RIGHT) g_rightClick = true;
+    }
+}
+
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_F11 && action == GLFW_PRESS)
+    {
+        g_fullscreen = !g_fullscreen;
+
+        if (g_fullscreen)
+        {
+            // Запоминаем текущее положение и размер окна
+            glfwGetWindowPos(window, &g_windowedX, &g_windowedY);
+            glfwGetWindowSize(window, &g_windowedW, &g_windowedH);
+
+            // Переходим в fullscreen на текущем мониторе
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            glfwSetWindowMonitor(window, monitor, 0, 0,
+                mode->width, mode->height, mode->refreshRate);
+        }
+        else
+        {
+            // Возвращаемся в оконный режим
+            glfwSetWindowMonitor(window, nullptr,
+                g_windowedX, g_windowedY,
+                g_windowedW, g_windowedH, 0);
+        }
     }
 }
 
@@ -127,30 +175,48 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    float resolutionX = 1920.0f;
-    float resolutionY = 1080.0f;
-
-    GLFWwindow* window = glfwCreateWindow((int)resolutionX, (int)resolutionY, "SurvivalProject", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow((int)g_width, (int)g_height, "SurvivalProject", NULL, NULL);
     glfwMakeContextCurrent(window);
 
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    // Получаем реальный размер фреймбуфера сразу после создания окна
+    // (на Retina/HiDPI он может отличаться от размера окна)
+    int fbW, fbH;
+    glfwGetFramebufferSize(window, &fbW, &fbH);
+    g_width = (float)fbW;
+    g_height = (float)fbH;
+
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+    glViewport(0, 0, fbW, fbH);
 
     // Шейдеры
     unsigned int shaderProgram = CompileShader(vertexShaderSource, fragmentShaderSource);
     unsigned int crosshairProgram = CompileShader(crosshairVertSrc, crosshairFragSrc);
 
-    // Крестик (2 линии в NDC)
-    // Горизонтальная и вертикальная линии, длина 0.02 в NDC
-    float crosshairSize = 0.018f;
+    float ch = 5.0f;    // длина
+    float th = 1.0f;    // толщина
+
     float crosshairVerts[] = {
-        -crosshairSize, 0.0f,
-         crosshairSize, 0.0f,
-         0.0f, -crosshairSize * (resolutionX / resolutionY),
-         0.0f,  crosshairSize * (resolutionX / resolutionY),
+        // Горизонтальная линия (2 треугольника)
+        -ch, -th,
+         ch, -th,
+         ch,  th,
+        -ch, -th,
+         ch,  th,
+        -ch,  th,
+
+        // Вертикальная линия (2 треугольника)
+        -th, -ch,
+         th, -ch,
+         th,  ch,
+        -th, -ch,
+         th,  ch,
+        -th,  ch,
     };
 
     unsigned int chVAO, chVBO;
@@ -201,6 +267,7 @@ int main()
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
     unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
+    unsigned int screenSizeLoc = glGetUniformLocation(crosshairProgram, "uScreenSize");
 
     // Timing / FPS
     double previousTime = 0.0, currentTime = 0.0, timeDifference = 0.0;
@@ -299,7 +366,7 @@ int main()
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(75.0f), resolutionX / resolutionY, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
@@ -332,8 +399,9 @@ int main()
         // Крестик (2D поверх всего)
         glDisable(GL_DEPTH_TEST);
         glUseProgram(crosshairProgram);
+        glUniform2f(screenSizeLoc, g_width, g_height);
         glBindVertexArray(chVAO);
-        glDrawArrays(GL_LINES, 0, 4);
+        glDrawArrays(GL_TRIANGLES, 0, 12); // 12 вершин = 2 прямоугольника
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
 
