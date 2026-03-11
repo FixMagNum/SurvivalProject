@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -124,7 +124,7 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -138,8 +138,15 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     <ClCompile Include="camera.cpp" />
     <ClCompile Include="chunk.cpp" />
     <ClCompile Include="D:\Libraries\glad\src\glad.c" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\backends\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui.cpp" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_draw.cpp" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_tables.cpp" />
+    <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_widgets.cpp" />
     <ClCompile Include="frustum.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="player.cpp" />
     <ClCompile Include="stb.cpp" />
     <ClCompile Include="world.cpp" />
   </ItemGroup>
@@ -149,6 +156,7 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     <ClInclude Include="camera.h" />
     <ClInclude Include="chunk.h" />
     <ClInclude Include="frustum.h" />
+    <ClInclude Include="player.h" />
     <ClInclude Include="world.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

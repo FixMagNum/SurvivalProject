@@ -4,11 +4,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "camera.h"
+#include "player.h"
 #include "world.h"
 #include "frustum.h"
 #include <iostream>
 #include <string>
 #include <stb_image.h>
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -75,6 +79,7 @@ void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
 
 // Глобальные переменные
 Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
+Player player(glm::vec3(0.0f, 120.0f, 0.0f));
 
 static float g_width = 800.0f;
 static float g_height = 600.0f;
@@ -194,6 +199,16 @@ int main()
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     glViewport(0, 0, fbW, fbH);
 
+    // Dear ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr; // не создаём imgui.ini
+
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
     // Шейдеры
     unsigned int shaderProgram = CompileShader(vertexShaderSource, fragmentShaderSource);
     unsigned int crosshairProgram = CompileShader(crosshairVertSrc, crosshairFragSrc);
@@ -274,6 +289,10 @@ int main()
     unsigned int counter = 0;
     int lastVisibleChunks = 0;
 
+    // Сглаженные значения для ImGui (чтобы не дёргались)
+    float displayFPS = 0.f;
+    float displayMS = 0.f;
+
     float deltaTime = 0.0f, lastFrame = 0.0f;
 
     // Текущий чанк игрока (для обнаружения смены)
@@ -288,10 +307,8 @@ int main()
         counter++;
         if (timeDifference >= 1.0 / 30.0)
         {
-            std::string FPS = std::to_string((1.0 / timeDifference) * counter);
-            std::string ms = std::to_string((timeDifference / counter) * 1000.0);
-            std::string newTitle = "SurvivalProject - " + FPS + " FPS / " + ms + " ms  chunks: " + std::to_string(lastVisibleChunks);
-            glfwSetWindowTitle(window, newTitle.c_str());
+            displayFPS = (float)((1.0 / timeDifference) * counter);
+            displayMS = (float)((timeDifference / counter) * 1000.0);
             previousTime = currentTime;
             counter = 0;
         }
@@ -301,12 +318,16 @@ int main()
         lastFrame = currentFrame;
 
         // Клавиатура
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_W, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_S, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_A, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_D, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_SPACE, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) camera.ProcessKeyboard(GLFW_KEY_LEFT_SHIFT, deltaTime);
+        player.moveForward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+        player.moveBack = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+        player.moveLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+        player.moveRight = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+            player.Jump();
+
+        // Обновляем физику и двигаем камеру
+        player.Update(deltaTime, world, camera);
 
         // Динамическая подгрузка
         int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
@@ -363,6 +384,30 @@ int main()
             }
         }
 
+        // ImGui новый кадр
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        // ImGui оверлей со статистикой
+        ImGui::SetNextWindowPos(ImVec2(10.f, 10.f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(210.f, 0.f), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.45f);
+
+        ImGuiWindowFlags overlayFlags =
+            ImGuiWindowFlags_NoDecoration |
+            ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+        ImGui::Begin("##stats", nullptr, overlayFlags);
+        ImGui::Text("FPS: %6.1f", displayFPS);
+        ImGui::Text("Frametime: %6.2f ms", displayMS);
+        ImGui::Separator();
+        ImGui::Text("Chunks: %d", lastVisibleChunks);
+        ImGui::End();
+
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
@@ -405,9 +450,18 @@ int main()
         glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
 
+        // ImGui рендер (поверх всего)
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    // Очистка ImGui
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     glfwTerminate();
     return 0;
