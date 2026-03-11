@@ -111,35 +111,42 @@ World::~World()
 
 void World::ScheduleChunk(int cx, int cz)
 {
-    // Создаём чанк под мьютексом
     Chunk* chunk = nullptr;
     {
         std::lock_guard<std::mutex> lock(chunkMapMutex);
 
         ChunkKey key{ cx, cz };
-        if (chunkMap.count(key)) return; // уже есть
+        if (chunkMap.count(key)) return;
 
         auto uptr = std::make_unique<Chunk>(cx, cz, this);
         chunk = uptr.get();
         chunkMap[key] = std::move(uptr);
     }
 
+    // Читаем дельту в главном потоке ДО отправки в threadPool
+    // Файловый I/O дешевле чем блокировать рабочий поток
+    LoadChunkDelta(chunk);
+
     chunk->state.store(ChunkState::Generating);
 
-    // Отправляем в рабочий поток
     threadPool.Enqueue([this, chunk, cx, cz] {
-        // Только генерируем блоки — всё остальное через UploadPendingChunks
         chunk->Generate();
-        LoadChunkDelta(chunk); // накладываем сохранённые изменения поверх
+
+        // Накладываем уже загруженную дельту поверх сгенерированных блоков
+        for (auto& [key, type] : chunk->modifiedBlocks)
+        {
+            int x = std::get<0>(key);
+            int y = std::get<1>(key);
+            int z = std::get<2>(key);
+            chunk->blocks[x][y][z] = type;
+        }
+
         chunk->state.store(ChunkState::Generated);
 
-        // Линкуем соседей сразу — они тоже начнут видеть нас
         {
             std::lock_guard<std::mutex> lock(chunkMapMutex);
             LinkNeighbors(chunk);
 
-            // Помечаем уже загруженных соседей для перестройки
-            // чтобы они убрали лишние грани на границе с новым чанком
             auto markRebuild = [](Chunk* neighbor) {
                 if (neighbor && neighbor->state.load() == ChunkState::Uploaded)
                     neighbor->needsRebuild.store(true);
@@ -281,56 +288,62 @@ static bool AllNeighborsGenerated(
 int World::UploadPendingChunks(int maxPerFrame)
 {
     int uploaded = 0;
-    // Бюджет времени — не тратим больше 4ms на загрузку за кадр
     auto frameStart = std::chrono::steady_clock::now();
     constexpr int BUDGET_MS = 4;
 
-    std::lock_guard<std::mutex> lock(chunkMapMutex);
+    // Собираем списки под мьютексом — быстро, без GL вызовов
+    std::vector<Chunk*> toUpload;
+    std::vector<Chunk*> toRebuild;
 
-    for (auto& [key, chunk] : chunkMap)
     {
-        auto s = chunk->state.load();
+        std::lock_guard<std::mutex> lock(chunkMapMutex);
 
-        // Перестройка после break/place — только для уже загруженных чанков
-        if (s == ChunkState::Uploaded && chunk->needsRebuild.exchange(false))
+        for (auto& [key, chunk] : chunkMap)
         {
-            chunk->state.store(ChunkState::MeshBuilding);
-            Chunk* ptr = chunk.get();
-            threadPool.Enqueue([ptr] {
-                ptr->GenerateMeshData();
-                ptr->state.store(ChunkState::MeshReady);
-                });
-            continue;
-        }
+            auto s = chunk->state.load();
 
-        // Запуск построения меша для новых чанков.
-        // ЖДЁМ пока все 4 соседа сгенерируют блоки — меш строится
-        // один раз с правильными данными, без мигания и дыр на границах.
-        if (s == ChunkState::Generated &&
-            AllNeighborsGenerated(chunkMap, key.x, key.z))
-        {
-            chunk->state.store(ChunkState::MeshBuilding);
-            Chunk* ptr = chunk.get();
-            threadPool.Enqueue([ptr] {
-                ptr->GenerateMeshData();
-                ptr->state.store(ChunkState::MeshReady);
-                });
-            continue;
-        }
+            if (s == ChunkState::Uploaded && chunk->needsRebuild.exchange(false))
+            {
+                toRebuild.push_back(chunk.get());
+                continue;
+            }
 
-        // Загрузка готового меша на GPU
-        if (uploaded >= maxPerFrame) continue;
+            if (s == ChunkState::Generated &&
+                AllNeighborsGenerated(chunkMap, key.x, key.z))
+            {
+                toRebuild.push_back(chunk.get());
+                continue;
+            }
+
+            if (s == ChunkState::MeshReady)
+                toUpload.push_back(chunk.get());
+        }
+    }
+    // Мьютекс отпущен — рабочие потоки больше не блокируются
+
+    // Запускаем перестройку мешей
+    for (Chunk* ptr : toRebuild)
+    {
+        ptr->state.store(ChunkState::MeshBuilding);
+        threadPool.Enqueue([ptr] {
+            ptr->GenerateMeshData();
+            ptr->state.store(ChunkState::MeshReady);
+            });
+    }
+
+    // Загружаем на GPU с бюджетом времени
+    for (Chunk* chunk : toUpload)
+    {
+        if (uploaded >= maxPerFrame) break;
 
         auto elapsed = std::chrono::steady_clock::now() - frameStart;
         if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= BUDGET_MS)
             break;
 
-        if (s == ChunkState::MeshReady)
-        {
-            chunk->UploadToGPU();
-            uploaded++;
-        }
+        chunk->UploadToGPU();
+        uploaded++;
     }
+
     return uploaded;
 }
 

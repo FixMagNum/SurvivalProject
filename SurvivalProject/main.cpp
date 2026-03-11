@@ -252,8 +252,8 @@ int main()
             lastPlayerCZ = playerCZ;
         }
 
-        // Загружаем на GPU не более 4 чанков за кадр (без фризов)
-        world.UploadPendingChunks(4);
+        // Загружаем на GPU не более 2 чанков за кадр (без фризов)
+        world.UploadPendingChunks(2);
 
         // Raycast + клики мыши
         // Дальность взаимодействия 6 блоков (как в Minecraft)
