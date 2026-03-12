@@ -335,6 +335,9 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        // Ограничиваем deltaTime — при ресайзе/фризах игрок не проваливается
+        if (deltaTime > 0.05f) deltaTime = 0.05f;
+
         // Клавиатура
         player.moveForward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
         player.moveBack = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
@@ -391,8 +394,8 @@ int main()
                 int placeZ = hit.worldZ + hit.normalZ;
 
                 // Не ставим блок внутри игрока (упрощённая проверка)
-                glm::vec3 playerMin = camera.Position - glm::vec3(0.3f, 1.7f, 0.3f);
-                glm::vec3 playerMax = camera.Position + glm::vec3(0.3f, 0.3f, 0.3f);
+                glm::vec3 playerMin = player.position - glm::vec3(Player::WIDTH / 2.0f, 0.0f, Player::WIDTH / 2.0f);
+                glm::vec3 playerMax = player.position + glm::vec3(Player::WIDTH / 2.0f, Player::HEIGHT, Player::WIDTH / 2.0f);
                 bool insidePlayer =
                     (placeX     < playerMax.x && placeX + 1 > playerMin.x) &&
                     (placeY     < playerMax.y && placeY + 1 > playerMin.y) &&
