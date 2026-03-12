@@ -15,93 +15,85 @@ bool Player::IsSolid(int x, int y, int z, World& world)
 
 void Player::MoveAndCollide(glm::vec3 delta, World& world)
 {
-    // AABB игрока: от position до position + (WIDTH, HEIGHT, WIDTH)
-    // Двигаем по каждой оси отдельно — так коллизии надёжнее
+    position += delta;
 
     float half = WIDTH / 2.0f;
 
-    // X
-    position.x += delta.x;
+    int minX = (int)floor(position.x - half);
+    int maxX = (int)floor(position.x + half);
+    int minY = (int)floor(position.y);
+    int maxY = (int)floor(position.y + HEIGHT - 0.001f);
+    int minZ = (int)floor(position.z - half);
+    int maxZ = (int)floor(position.z + half);
+
+    isGrounded = false;
+
+    for (int x = minX; x <= maxX; x++)
+    for (int y = minY; y <= maxY; y++)
+    for (int z = minZ; z <= maxZ; z++)
     {
-        int minX = (int)floor(position.x - half);
-        int maxX = (int)floor(position.x + half);
-        int minY = (int)floor(position.y);
-        int maxY = (int)floor(position.y + HEIGHT - 0.001f);
-        int minZ = (int)floor(position.z - half);
-        int maxZ = (int)floor(position.z + half);
+        if (!IsSolid(x, y, z, world)) continue;
 
-        for (int x = minX; x <= maxX; x++)
-            for (int y = minY; y <= maxY; y++)
-                for (int z = minZ; z <= maxZ; z++)
-                {
-                    if (!IsSolid(x, y, z, world)) continue;
+        // Перекрытие по каждой оси
+        float overlapPX = (x + 1.0f) - (position.x - half);  // блок справа от нас
+        float overlapNX = (position.x + half) - x;           // блок слева
+        float overlapPY = (y + 1.0f) - position.y;           // блок снизу
+        float overlapNY = (position.y + HEIGHT) - y;         // блок сверху
+        float overlapPZ = (z + 1.0f) - (position.z - half);  // блок спереди
+        float overlapNZ = (position.z + half) - z;           // блок сзади
 
-                    if (delta.x > 0)
-                        position.x = x - half;
-                    else
-                        position.x = x + 1.0f + half;
+        // Минимальное перекрытие — по этой оси и выталкиваем
+        float minOverlap = overlapPX;
+        int   axis = 0; // 0=X, 1=Y, 2=Z
+        bool  positive = true;
 
-                    velocity.x = 0.0f;
-                    break;
-                }
+        if (overlapNX < minOverlap) { minOverlap = overlapNX; axis = 0; positive = false; }
+        if (overlapPY < minOverlap) { minOverlap = overlapPY; axis = 1; positive = true;  }
+        if (overlapNY < minOverlap) { minOverlap = overlapNY; axis = 1; positive = false; }
+        if (overlapPZ < minOverlap) { minOverlap = overlapPZ; axis = 2; positive = true;  }
+        if (overlapNZ < minOverlap) { minOverlap = overlapNZ; axis = 2; positive = false; }
+
+        if (axis == 0)
+        {
+            position.x += positive ? minOverlap : -minOverlap;
+            velocity.x = 0.0f;
+        }
+        else if (axis == 1)
+        {
+            position.y += positive ? minOverlap : -minOverlap;
+            if (!positive && delta.y <= 0.0f) isGrounded = true; // выталкиваем вверх = стоим на полу
+            velocity.y = 0.0f;
+        }
+        else
+        {
+            position.z += positive ? minOverlap : -minOverlap;
+            velocity.z = 0.0f;
+        }
     }
-
-    // Z
-    position.z += delta.z;
-    {
-        int minX = (int)floor(position.x - half);
-        int maxX = (int)floor(position.x + half);
-        int minY = (int)floor(position.y);
-        int maxY = (int)floor(position.y + HEIGHT - 0.001f);
-        int minZ = (int)floor(position.z - half);
-        int maxZ = (int)floor(position.z + half);
-
-        for (int x = minX; x <= maxX; x++)
-            for (int y = minY; y <= maxY; y++)
-                for (int z = minZ; z <= maxZ; z++)
-                {
-                    if (!IsSolid(x, y, z, world)) continue;
-
-                    if (delta.z > 0)
-                        position.z = z - half;
-                    else
-                        position.z = z + 1.0f + half;
-
-                    velocity.z = 0.0f;
-                    break;
-                }
-    }
-
-    // Y
-    position.y += delta.y;
+    
+    // Отдельно проверяем блок под ногами для isGrounded
     isGrounded = false;
     {
+        float half = WIDTH / 2.0f;
         int minX = (int)floor(position.x - half);
         int maxX = (int)floor(position.x + half);
-        int minY = (int)floor(position.y);
-        int maxY = (int)floor(position.y + HEIGHT - 0.001f);
         int minZ = (int)floor(position.z - half);
         int maxZ = (int)floor(position.z + half);
+        int floorY = (int)floor(position.y) - 1;
 
         for (int x = minX; x <= maxX; x++)
-            for (int y = minY; y <= maxY; y++)
-                for (int z = minZ; z <= maxZ; z++)
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                if (IsSolid(x, floorY, z, world))
                 {
-                    if (!IsSolid(x, y, z, world)) continue;
-
-                    if (delta.y < 0)
+                    // Стоим вплотную к блоку снизу
+                    if (fabs(position.y - (floorY + 1.0f)) < 0.05f)
                     {
-                        position.y = y + 1.0f;
                         isGrounded = true;
+                        break;
                     }
-                    else
-                    {
-                        position.y = y - HEIGHT;
-                    }
-
-                    velocity.y = 0.0f;
-                    break;
                 }
+            }
     }
 }
 

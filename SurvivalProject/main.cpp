@@ -13,6 +13,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "hotbar.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -81,6 +82,8 @@ void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
 Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 Player player(glm::vec3(0.0f, 120.0f, 0.0f));
 
+static double g_scrollDelta = 0.0;
+
 static float g_width = 800.0f;
 static float g_height = 600.0f;
 
@@ -91,6 +94,11 @@ static int  g_windowedW = 800, g_windowedH = 600;
 // Флаги кликов мыши (устанавливаются в callback, читаются в game loop)
 static bool g_leftClick = false;
 static bool g_rightClick = false;
+
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    g_scrollDelta += yoffset;
+}
 
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -187,6 +195,7 @@ int main()
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // Получаем реальный размер фреймбуфера сразу после создания окна
@@ -271,6 +280,15 @@ int main()
     else std::cout << "Failed to load texture\n";
     stbi_image_free(data);
 
+    Hotbar hotbar;
+    hotbar.Init(textureID);
+
+    hotbar.slots[0] = GRASS;
+    hotbar.slots[1] = DIRT;
+    hotbar.slots[2] = STONE;
+    hotbar.slots[3] = OAK_PLANKS;
+    hotbar.slots[4] = GLASS;
+
     // Мир
     World world;
     Frustum frustum;
@@ -323,11 +341,15 @@ int main()
         player.moveLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         player.moveRight = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-            player.Jump();
-
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
+
+        std::string newTitle = "isGrounded: " + std::to_string(player.isGrounded) +
+            " velY: " + std::to_string(player.velocity.y);
+        glfwSetWindowTitle(window, newTitle.c_str());
+
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+            player.Jump();
 
         // Динамическая подгрузка
         int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
@@ -378,11 +400,23 @@ int main()
 
                 if (!insidePlayer && world.GetBlock(placeX, placeY, placeZ) == AIR)
                 {
-                    world.SetBlock(placeX, placeY, placeZ, OAK_PLANKS);
+                    // Используем активный блок при ПКМ
+                    world.SetBlock(placeX, placeY, placeZ, hotbar.GetActiveBlock());
                     world.RebuildChunkAt(placeX, placeY, placeZ);
                 }
             }
         }
+
+        // Колесо мыши
+        if (g_scrollDelta != 0.0) {
+            hotbar.ScrollSlot(g_scrollDelta > 0 ? -1 : 1);
+            g_scrollDelta = 0.0;
+        }
+
+        // Цифровые клавиши 1-9
+        for (int i = 0; i < 9; i++)
+            if (glfwGetKey(window, GLFW_KEY_1 + i) == GLFW_PRESS)
+                hotbar.SetSlot(i);
 
         // ImGui новый кадр
         ImGui_ImplOpenGL3_NewFrame();
@@ -448,6 +482,13 @@ int main()
         glBindVertexArray(chVAO);
         glDrawArrays(GL_TRIANGLES, 0, 12); // 12 вершин = 2 прямоугольника
         glBindVertexArray(0);
+        glEnable(GL_DEPTH_TEST);
+
+        // Рендер хотбара
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        hotbar.Draw(g_width, g_height);
+        glEnable(GL_CULL_FACE);
         glEnable(GL_DEPTH_TEST);
 
         // ImGui рендер (поверх всего)

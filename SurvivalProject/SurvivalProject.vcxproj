@@ -145,6 +145,7 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_tables.cpp" />
     <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_widgets.cpp" />
     <ClCompile Include="frustum.cpp" />
+    <ClCompile Include="hotbar.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="player.cpp" />
     <ClCompile Include="stb.cpp" />
@@ -156,6 +157,7 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     <ClInclude Include="camera.h" />
     <ClInclude Include="chunk.h" />
     <ClInclude Include="frustum.h" />
+    <ClInclude Include="hotbar.h" />
     <ClInclude Include="player.h" />
     <ClInclude Include="world.h" />
   </ItemGroup>
