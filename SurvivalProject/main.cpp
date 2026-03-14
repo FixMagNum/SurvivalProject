@@ -22,10 +22,12 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec2 aTileOffset;
 layout (location = 3) in float aAO;
+layout (location = 4) in vec3 aNormal;
 
 out vec2 TexCoord;
 out vec2 TileOffset;
 out float AO;
+out vec3 Normal;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -37,6 +39,7 @@ void main()
     TexCoord = aTexCoord;
     TileOffset = aTileOffset;
     AO = aAO;
+    Normal = aNormal;
 }
 )";
 
@@ -47,16 +50,40 @@ out vec4 FragColor;
 in vec2 TexCoord;
 in vec2 TileOffset;
 in float AO;
+in vec3 Normal;
 
 uniform sampler2D texture1;
+uniform vec3  uSunDir;       // направление к солнцу (нормализованное)
+uniform vec3  uSunColor;     // цвет солнца (меняется день/ночь)
+uniform vec3  uMoonDir;
+uniform vec3  uMoonColor;
+uniform float uAmbient;      // минимальная яркость (ночью меньше)
 
 const float TILE_SIZE = 1.0 / 16.0;
 
 void main()
 {
     vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
-    float light = mix(0.6, 1.0, AO);
-    FragColor = texture(texture1, uv) * vec4(vec3(light), 1.0);
+    vec4 texColor = texture(texture1, uv);
+
+    float sunDiff  = max(dot(Normal, uSunDir),  0.0);
+    float moonDiff = max(dot(Normal, uMoonDir), 0.0);
+
+    float aoFactor = mix(0.6, 1.0, AO);
+
+    float sunFade  = smoothstep(-0.1, 0.15, uSunDir.y);
+    float moonFade = smoothstep(-0.1, 0.15, uMoonDir.y);
+
+    vec3 diffuse = sunDiff  * uSunColor  * sunFade
+                 + moonDiff * uMoonColor * moonFade;
+
+    float light = (uAmbient + diffuse.r + diffuse.g + diffuse.b) / 3.0 * aoFactor;
+    light = clamp(light, 0.0, 1.0);
+
+    FragColor = texColor * vec4(uSunColor * sunFade * sunDiff 
+                              + uMoonColor * moonFade * moonDiff 
+                              + vec3(uAmbient), 1.0) * aoFactor;
+    FragColor = clamp(FragColor, 0.0, 1.0) * texColor;
 }
 )";
 
@@ -83,6 +110,7 @@ Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 Player player(glm::vec3(0.0f, 120.0f, 0.0f));
 
 static double g_scrollDelta = 0.0;
+static float g_timeOfDay = 0.0f; // 0.0 = рассвет, 0.5 = закат, 1.0 = рассвет
 
 static float g_width = 800.0f;
 static float g_height = 600.0f;
@@ -300,6 +328,11 @@ int main()
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
     unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
+    unsigned int sunDirLoc = glGetUniformLocation(shaderProgram, "uSunDir");
+    unsigned int sunColorLoc = glGetUniformLocation(shaderProgram, "uSunColor");
+    unsigned int moonDirLoc = glGetUniformLocation(shaderProgram, "uMoonDir");
+    unsigned int moonColorLoc = glGetUniformLocation(shaderProgram, "uMoonColor");
+    unsigned int ambientLoc = glGetUniformLocation(shaderProgram, "uAmbient");
     unsigned int screenSizeLoc = glGetUniformLocation(crosshairProgram, "uScreenSize");
 
     // Timing / FPS
@@ -346,10 +379,6 @@ int main()
 
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
-
-        std::string newTitle = "isGrounded: " + std::to_string(player.isGrounded) +
-            " velY: " + std::to_string(player.velocity.y);
-        glfwSetWindowTitle(window, newTitle.c_str());
 
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
             player.Jump();
@@ -443,7 +472,59 @@ int main()
         ImGui::Text("Frametime: %6.2f ms", displayMS);
         ImGui::Separator();
         ImGui::Text("Chunks: %d", lastVisibleChunks);
+        ImGui::Text("Time: %.2f", g_timeOfDay);
         ImGui::End();
+
+        // Цикл дня/ночи
+        g_timeOfDay += deltaTime * 0.01f; // 100 секунд = одни сутки
+        if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
+
+        // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
+        float sunAngle = g_timeOfDay * glm::two_pi<float>();
+        glm::vec3 sunDir = glm::normalize(glm::vec3(
+            cos(sunAngle),
+            sin(sunAngle),
+            0.3f
+        ));
+        glm::vec3 moonDir = -sunDir;
+
+        // Цвет неба и солнца зависит от высоты солнца
+        float sunHeight = sunDir.y; // -1..1
+        float moonHeight = moonDir.y;
+
+        // День: голубое небо, Закат: оранжевое, Ночь: тёмно-синее
+        glm::vec3 skyDay = glm::vec3(0.5f, 0.7f, 1.0f);
+        glm::vec3 skySunset = glm::vec3(1.0f, 0.4f, 0.1f);
+        glm::vec3 skyNight = glm::vec3(0.02f, 0.02f, 0.08f);
+
+        glm::vec3 skyColor;
+        float ambient;
+
+        if (sunHeight > 0.0f)
+        {
+            // День — закат
+            float t = glm::smoothstep(0.0f, 0.3f, sunHeight);
+            skyColor = glm::mix(skySunset, skyDay, t);
+            ambient = glm::mix(0.3f, 0.15f, t); // на закате чуть темнее
+        }
+        else
+        {
+            // Ночь
+            float t = glm::smoothstep(0.0f, -0.2f, sunHeight);
+            skyColor = glm::mix(skySunset, skyNight, t);
+            ambient = glm::mix(0.3f, 0.08f, t); // ночью очень темно
+        }
+
+        // Цвет солнца — белый днём, оранжевый на закате
+        glm::vec3 sunColor = glm::mix(
+            glm::vec3(1.0f, 0.6f, 0.3f),
+            glm::vec3(1.0f, 1.0f, 1.0f),
+            glm::clamp(sunHeight * 3.0f, 0.0f, 1.0f)
+        );
+
+        // Лунный свет — холодный синеватый
+        float moonFade = glm::smoothstep(-0.1f, 0.15f, moonHeight);
+        glm::vec3 moonColor = glm::vec3(0.2f, 0.25f, 0.4f) * moonFade;
 
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
@@ -452,7 +533,7 @@ int main()
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
-        glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
+        glClearColor(skyColor.r, skyColor.g, skyColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
@@ -460,6 +541,11 @@ int main()
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3fv(sunDirLoc, 1, glm::value_ptr(sunDir));
+        glUniform3fv(sunColorLoc, 1, glm::value_ptr(sunColor));
+        glUniform3fv(moonDirLoc, 1, glm::value_ptr(moonDir));
+        glUniform3fv(moonColorLoc, 1, glm::value_ptr(moonColor));
+        glUniform1f(ambientLoc, ambient);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);

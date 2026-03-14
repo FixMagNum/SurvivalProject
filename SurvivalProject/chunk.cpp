@@ -100,7 +100,7 @@ void Chunk::AddQuad(
     glm::vec3 axis1, int w,
     glm::vec3 axis2, int h,
     int tileID, bool flipWinding,
-    float ao0, float ao1, float ao2, float ao3)
+    float ao0, float ao1, float ao2, float ao3, glm::vec3 normal)
 {
     float worldOffsetX = chunkPos.x * SIZE_X;
     float worldOffsetZ = chunkPos.y * SIZE_Z;
@@ -124,9 +124,12 @@ void Chunk::AddQuad(
         vertices.push_back(u0);
         vertices.push_back(v0);
         vertices.push_back(ao);
+		vertices.push_back(normal.x);
+        vertices.push_back(normal.y);
+        vertices.push_back(normal.z);
         };
 
-    uint32_t base = (uint32_t)(vertices.size() / 8);
+    uint32_t base = (uint32_t)(vertices.size() / 11);
 
     push(p0, 0, 0, ao0);
     push(p1, (float)w, 0, ao1);
@@ -280,7 +283,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, 1, 0));
             }
     }
 
@@ -333,7 +337,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, true,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, -1, 0));
             }
     }
 
@@ -386,7 +391,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     glm::vec3(0, 1, 0), dy,
                     ref.tileID, false,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(1, 0, 0));
             }
     }
 
@@ -439,7 +445,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     glm::vec3(0, 1, 0), dy,
                     ref.tileID, true,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(-1, 0, 0));
             }
     }
 
@@ -492,7 +499,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 1, 0), dy,
                     ref.tileID, true,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, 0, 1));
             }
     }
 
@@ -545,7 +553,8 @@ void Chunk::GenerateMeshData()
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 1, 0), dy,
                     ref.tileID, false,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3]);
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, 0, -1));
             }
     }
     // (конец GenerateMeshData — только CPU данные, GPU ещё не трогаем)
@@ -569,7 +578,7 @@ void Chunk::UploadToGPU()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_DYNAMIC_DRAW);
 
-    constexpr int STRIDE = 8 * sizeof(float);
+    constexpr int STRIDE = 11 * sizeof(float);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
@@ -582,6 +591,9 @@ void Chunk::UploadToGPU()
 
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
     glEnableVertexAttribArray(3);
+
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(4);
 
     glBindVertexArray(0);
 

@@ -75,7 +75,7 @@ private:
         glm::vec3 axis1, int w,
         glm::vec3 axis2, int h,
         int tileID, bool flipWinding,
-        float ao0, float ao1, float ao2, float ao3);
+        float ao0, float ao1, float ao2, float ao3, glm::vec3 normal);
 
     // Считает AO для одной вершины (0..3, где 3 = светло)
     int ComputeAO(int side1, int side2, int corner);
@@ -84,7 +84,7 @@ private:
 
     // CPU-буферы меша (заполняются в GenerateMeshData)
     // AO хранится прямо в вершинах — добавляем 1 float к формату
-    // Новый stride будет 8 floats: pos(3) + uv(2) + tileOffset(2) + ao(1)
+    // Новый stride: pos(3) + uv(2) + tileOffset(2) + ao(1) + normal(3) = 11 floats
     std::vector<float> vertices;
     std::vector<uint32_t> indices;
 };
