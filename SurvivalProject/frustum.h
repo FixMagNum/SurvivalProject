@@ -1,23 +1,22 @@
 #pragma once
 #include <glm/glm.hpp>
 
-struct Plane
-{
-	glm::vec3 normal;
-	float distance;
-
-	float GetDistance(const glm::vec3& p) const
-	{
-		return glm::dot(normal, p) + distance;
-	}
-};
-
 class Frustum
 {
 public:
-	Plane planes[6];
+    void Update(const glm::mat4& projview);
+    bool IsBoxVisible(const glm::vec3& min, const glm::vec3& max) const;
 
-	void Update(const glm::mat4& matrix);
+private:
+    enum Planes { Left = 0, Right, Bottom, Top, Near, Far, Count };
+    static constexpr int Combinations = Count * (Count - 1) / 2;
 
-	bool IsBoxVisible(const glm::vec3& min, const glm::vec3& max);
+    template<Planes i, Planes j>
+    struct ij2k { enum { k = i * (9 - i) / 2 + j - 1 }; };
+
+    template<Planes a, Planes b, Planes c>
+    glm::vec3 intersection(const glm::vec3* crosses) const;
+
+    glm::vec4 m_planes[Count];
+    glm::vec3 m_points[8];   // 8 углов фрустума в мировом пространстве
 };

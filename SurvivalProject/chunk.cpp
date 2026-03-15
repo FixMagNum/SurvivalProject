@@ -19,9 +19,12 @@ BlockData blockDatabase[] =
     { Tile(2,0), Tile(0,0), Tile(1,0) },    // GRASS
     { Tile(0,0), Tile(0,0), Tile(0,0) },    // DIRT
     { Tile(3,0), Tile(3,0), Tile(3,0) },    // STONE
-	{ Tile(5,0), Tile(5,0), Tile(4,0) },    // OAK_PLANKS
-	{ Tile(6,0), Tile(6,0), Tile(6,0) },    // GLASS
+    { Tile(5,0), Tile(5,0), Tile(4,0) },    // OAK_PLANKS
+    { Tile(6,0), Tile(6,0), Tile(6,0) },    // GLASS
+    { Tile(7,0), Tile(7,0), Tile(7,0) },    // WATER
 };
+
+static const int SEA_LEVEL = 50;
 
 Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
 {
@@ -40,6 +43,7 @@ Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
                 blocks[x][y][z] = AIR;
 
     VAO = 0; VBO = 0; EBO = 0;
+    VAO_T = 0; VBO_T = 0; EBO_T = 0;
 }
 
 void Chunk::Generate()
@@ -68,6 +72,15 @@ void Chunk::Generate()
                 else if (y == surfaceY)    blocks[x][y][z] = GRASS;
                 else                       blocks[x][y][z] = AIR;
             }
+
+            // Заполняем водой до уровня моря
+            for (int y = surfaceY + 1; y <= SEA_LEVEL; y++)
+                if (blocks[x][y][z] == AIR)
+                    blocks[x][y][z] = WATER;
+
+            // Под водой трава -> грязь
+            if (surfaceY < SEA_LEVEL && blocks[x][surfaceY][z] == GRASS)
+                blocks[x][surfaceY][z] = DIRT;
         }
     }
 
@@ -94,14 +107,18 @@ int Chunk::ComputeAO(int side1, int side2, int corner)
     return 3 - (side1 + side2 + corner);
 }
 
-// Формат вершины: pos(3) + uv(2) + tileOffset(2) + ao(1) = 8 floats
 void Chunk::AddQuad(
     glm::vec3 origin,
     glm::vec3 axis1, int w,
-    glm::vec3 axis2, int h,
+    glm::vec3 axis2, float h,
     int tileID, bool flipWinding,
-    float ao0, float ao1, float ao2, float ao3, glm::vec3 normal)
+    float ao0, float ao1, float ao2, float ao3,
+    glm::vec3 normal,
+    bool transparent)
 {
+    auto& verts = transparent ? verticesT : vertices;
+    auto& inds = transparent ? indicesT : indices;
+
     float worldOffsetX = chunkPos.x * SIZE_X;
     float worldOffsetZ = chunkPos.y * SIZE_Z;
 
@@ -116,20 +133,20 @@ void Chunk::AddQuad(
     glm::vec3 p3 = origin + axis2 * (float)h;
 
     auto push = [&](glm::vec3 p, float u, float v, float ao) {
-        vertices.push_back(p.x + worldOffsetX);
-        vertices.push_back(p.y);
-        vertices.push_back(p.z + worldOffsetZ);
-        vertices.push_back(u);
-        vertices.push_back(v);
-        vertices.push_back(u0);
-        vertices.push_back(v0);
-        vertices.push_back(ao);
-		vertices.push_back(normal.x);
-        vertices.push_back(normal.y);
-        vertices.push_back(normal.z);
+        verts.push_back(p.x + worldOffsetX);
+        verts.push_back(p.y);
+        verts.push_back(p.z + worldOffsetZ);
+        verts.push_back(u);
+        verts.push_back(v);
+        verts.push_back(u0);
+        verts.push_back(v0);
+        verts.push_back(ao);
+        verts.push_back(normal.x);
+        verts.push_back(normal.y);
+        verts.push_back(normal.z);
         };
 
-    uint32_t base = (uint32_t)(vertices.size() / 11);
+    uint32_t base = (uint32_t)(verts.size() / 11);
 
     push(p0, 0, 0, ao0);
     push(p1, (float)w, 0, ao1);
@@ -138,31 +155,23 @@ void Chunk::AddQuad(
 
     if (!flipWinding)
     {
-        indices.push_back(base + 0);
-        indices.push_back(base + 2);
-        indices.push_back(base + 1);
-        indices.push_back(base + 0);
-        indices.push_back(base + 3);
-        indices.push_back(base + 2);
+        inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 1);
+        inds.push_back(base + 0); inds.push_back(base + 3); inds.push_back(base + 2);
     }
     else
     {
-        indices.push_back(base + 0);
-        indices.push_back(base + 1);
-        indices.push_back(base + 2);
-        indices.push_back(base + 0);
-        indices.push_back(base + 2);
-        indices.push_back(base + 3);
+        inds.push_back(base + 0); inds.push_back(base + 1); inds.push_back(base + 2);
+        inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 3);
     }
 }
 
-// GenerateMeshData — только CPU работа, можно вызывать из рабочего потока
 void Chunk::GenerateMeshData()
 {
     vertices.clear();
     indices.clear();
+    verticesT.clear();
+    indicesT.clear();
 
-    // Пересчитываем minY/maxY — они могли устареть после SetBlock
     minY = SIZE_Y;
     maxY = 0;
     for (int x = 0; x < SIZE_X; x++)
@@ -172,9 +181,8 @@ void Chunk::GenerateMeshData()
                     minY = std::min(minY, y);
                     maxY = std::max(maxY, y);
                 }
-    if (minY > maxY) return; // чанк пустой
+    if (minY > maxY) return;
 
-    // getBlock с поддержкой соседних чанков
     auto getBlock = [&](int x, int y, int z) -> BlockType {
         if (y < 0 || y >= SIZE_Y) return AIR;
         if (x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
@@ -210,17 +218,20 @@ void Chunk::GenerateMeshData()
         return bd.side;
         };
 
+    auto isTransparent = [](BlockType b) -> bool {
+        return b == GLASS || b == WATER;
+        };
+
+    // Для AO вода и стекло не считаются solid
     auto solid = [&](int x, int y, int z) -> int {
-        return getBlock(x, y, z) != AIR ? 1 : 0;
+        BlockType b = getBlock(x, y, z);
+        return (b != AIR && !isTransparent(b)) ? 1 : 0;
         };
 
     auto aoVal = [&](int s1, int s2, int c) -> float {
         return ComputeAO(s1, s2, c) / 3.0f;
         };
 
-    // Ключевая структура: ячейка маски содержит tileID + AO
-    // Greedy meshing объединяет блоки ТОЛЬКО если ячейки полностью совпадают.
-    // Благодаря этому AO не растягивается на весь quad.
     struct MaskCell {
         int   tileID = -1;
         float ao[4] = { 1.f, 1.f, 1.f, 1.f };
@@ -233,7 +244,7 @@ void Chunk::GenerateMeshData()
         bool empty() const { return tileID < 0; }
     };
 
-    // +Y  (top faces)
+    // +Y (top faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
@@ -245,10 +256,15 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x, y + 1, z) == AIR)
+                BlockType above = getBlock(x, y + 1, z);
+
+                bool drawFace = (cur != AIR) &&
+                    (above == AIR || (isTransparent(above) && above != cur)) &&
+                    !(isTransparent(cur) && isTransparent(above));
+
+                if (drawFace)
                 {
                     cell.tileID = getTile(cur, 0);
-                    // Вершины quad'а в Y+1 плоскости (по часовой: -x-z, +x-z, +x+z, -x+z)
                     cell.ao[0] = aoVal(solid(x - 1, y + 1, z), solid(x, y + 1, z - 1), solid(x - 1, y + 1, z - 1));
                     cell.ao[1] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z - 1), solid(x + 1, y + 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z + 1), solid(x + 1, y + 1, z + 1));
@@ -279,16 +295,23 @@ void Chunk::GenerateMeshData()
                     for (int iz = 0; iz < dz; iz++)
                         used[x + ix][z + iz] = true;
 
-                AddQuad(glm::vec3(x, y + 1, z),
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
+                // 0.9f только если сверху нет воды
+                bool isTopWater = (cur == WATER) && (getBlock(x, y + 1, z) != WATER);
+                float topY = isTopWater ? y + 0.9f : y + 1.0f;
+
+                AddQuad(glm::vec3(x, topY, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 1, 0));
+                    glm::vec3(0, 1, 0), trans);
             }
     }
 
-    // -Y  (bottom faces)
+    // -Y (bottom faces)
     for (int y = minY; y <= maxY + 1; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
@@ -300,7 +323,10 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x, y - 1, z) == AIR)
+                BlockType below = getBlock(x, y - 1, z);
+                if (cur != AIR &&
+                    (below == AIR || (isTransparent(below) && below != cur)) &&
+                    !(isTransparent(cur) && isTransparent(below)))
                 {
                     cell.tileID = getTile(cur, 1);
                     cell.ao[0] = aoVal(solid(x - 1, y - 1, z), solid(x, y - 1, z - 1), solid(x - 1, y - 1, z - 1));
@@ -333,16 +359,19 @@ void Chunk::GenerateMeshData()
                     for (int iz = 0; iz < dz; iz++)
                         used[x + ix][z + iz] = true;
 
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, -1, 0));
+                    glm::vec3(0, -1, 0), trans);
             }
     }
 
-    // +X  (right faces)
+    // +X (right faces)
     for (int x = 0; x < SIZE_X; x++)
     {
         MaskCell mask[SIZE_Z][SIZE_Y];
@@ -354,7 +383,11 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[z][y];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x + 1, y, z) == AIR)
+                BlockType neighbor = getBlock(x + 1, y, z);
+
+                if (cur != AIR &&
+                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
+                    !(isTransparent(cur) && isTransparent(neighbor)))
                 {
                     cell.tileID = getTile(cur, 2);
                     cell.ao[0] = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z - 1), solid(x + 1, y - 1, z - 1));
@@ -387,16 +420,57 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[z + iz][y + iy] = true;
 
-                AddQuad(glm::vec3(x + 1, y, z),
-                    glm::vec3(0, 0, 1), dz,
-                    glm::vec3(0, 1, 0), dy,
-                    ref.tileID, false,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(1, 0, 0));
+                // Стало — для воды учитываем высоту верхнего слоя:
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
+                // Если это верхний слой воды — высота 0.9, иначе 1.0
+                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
+                    && (getBlock(x, y + dy, z) != WATER);
+
+                // Рисуем отдельно последний блок если он верхняя вода
+                if (isTopWater && dy > 1)
+                {
+                    // Нижние блоки — полная высота
+                    AddQuad(glm::vec3(x + 1, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy - 1,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(1, 0, 0), trans);
+
+                    // Верхний блок — 0.9 высота
+                    AddQuad(glm::vec3(x + 1, y + dy - 1, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 0.9f, 0), 1,  // высота 0.9
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(1, 0, 0), trans);
+                }
+                else if (isTopWater && dy == 1)
+                {
+                    // Один блок воды — просто 0.9
+                    AddQuad(glm::vec3(x + 1, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(1, 0, 0), trans);
+                }
+                else
+                {
+                    // Обычный блок — полная высота
+                    AddQuad(glm::vec3(x + 1, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(1, 0, 0), trans);
+                }
             }
     }
 
-    // -X  (left faces)
+    // -X (left faces)
     for (int x = 0; x < SIZE_X; x++)
     {
         MaskCell mask[SIZE_Z][SIZE_Y];
@@ -408,7 +482,11 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[z][y];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x - 1, y, z) == AIR)
+                BlockType neighbor = getBlock(x - 1, y, z);
+
+                if (cur != AIR &&
+                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
+                    !(isTransparent(cur) && isTransparent(neighbor)))
                 {
                     cell.tileID = getTile(cur, 2);
                     cell.ao[0] = aoVal(solid(x - 1, y - 1, z), solid(x - 1, y, z - 1), solid(x - 1, y - 1, z - 1));
@@ -441,16 +519,53 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[z + iz][y + iy] = true;
 
-                AddQuad(glm::vec3(x, y, z),
-                    glm::vec3(0, 0, 1), dz,
-                    glm::vec3(0, 1, 0), dy,
-                    ref.tileID, true,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(-1, 0, 0));
+                // Для воды учитываем высоту верхнего слоя:
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
+                // Если это верхний слой воды — высота 0.9, иначе 1.0
+                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
+                    && (getBlock(x, y + dy, z) != WATER);
+
+                // Рисуем отдельно последний блок если он верхняя вода
+                if (isTopWater && dy > 1)
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy - 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(-1, 0, 0), trans);
+
+                    AddQuad(glm::vec3(x, y + dy - 1, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(-1, 0, 0), trans);
+                }
+                else if (isTopWater && dy == 1)
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(-1, 0, 0), trans);
+                }
+                else
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(0, 0, 1), dz,
+                        glm::vec3(0, 1, 0), dy,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(-1, 0, 0), trans);
+                }
             }
     }
 
-    // +Z  (front faces)
+    // +Z (front faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
         MaskCell mask[SIZE_X][SIZE_Y];
@@ -462,7 +577,11 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[x][y];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x, y, z + 1) == AIR)
+                BlockType neighbor = getBlock(x, y, z + 1);
+
+                if (cur != AIR &&
+                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
+                    !(isTransparent(cur) && isTransparent(neighbor)))
                 {
                     cell.tileID = getTile(cur, 2);
                     cell.ao[0] = aoVal(solid(x - 1, y, z + 1), solid(x, y - 1, z + 1), solid(x - 1, y - 1, z + 1));
@@ -495,16 +614,53 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[x + ix][y + iy] = true;
 
-                AddQuad(glm::vec3(x, y, z + 1),
-                    glm::vec3(1, 0, 0), dx,
-                    glm::vec3(0, 1, 0), dy,
-                    ref.tileID, true,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 0, 1));
+                // Для воды учитываем высоту верхнего слоя:
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
+                // Если это верхний слой воды — высота 0.9, иначе 1.0
+                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
+                    && (getBlock(x, y + dy, z) != WATER);
+
+                // Рисуем отдельно последний блок если он верхняя вода
+                if (isTopWater && dy > 1)
+                {
+                    AddQuad(glm::vec3(x, y, z + 1),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy - 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, 1), trans);
+
+                    AddQuad(glm::vec3(x, y + dy - 1, z + 1),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, 1), trans);
+                }
+                else if (isTopWater && dy == 1)
+                {
+                    AddQuad(glm::vec3(x, y, z + 1),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, 1), trans);
+                }
+                else
+                {
+                    AddQuad(glm::vec3(x, y, z + 1),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy,
+                        ref.tileID, true,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, 1), trans);
+                }
             }
     }
 
-    // -Z  (back faces)
+    // -Z (back faces)
     for (int z = 0; z < SIZE_Z; z++)
     {
         MaskCell mask[SIZE_X][SIZE_Y];
@@ -516,7 +672,11 @@ void Chunk::GenerateMeshData()
             {
                 MaskCell& cell = mask[x][y];
                 BlockType cur = getBlock(x, y, z);
-                if (cur != AIR && getBlock(x, y, z - 1) == AIR)
+                BlockType neighbor = getBlock(x, y, z - 1);
+
+                if (cur != AIR &&
+                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
+                    !(isTransparent(cur) && isTransparent(neighbor)))
                 {
                     cell.tileID = getTile(cur, 2);
                     cell.ao[0] = aoVal(solid(x - 1, y, z - 1), solid(x, y - 1, z - 1), solid(x - 1, y - 1, z - 1));
@@ -549,20 +709,56 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[x + ix][y + iy] = true;
 
-                AddQuad(glm::vec3(x, y, z),
-                    glm::vec3(1, 0, 0), dx,
-                    glm::vec3(0, 1, 0), dy,
-                    ref.tileID, false,
-                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 0, -1));
+                // Для воды учитываем высоту верхнего слоя:
+                BlockType cur = getBlock(x, y, z);
+                bool trans = isTransparent(cur);
+
+                // Если это верхний слой воды — высота 0.9, иначе 1.0
+                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
+                    && (getBlock(x, y + dy, z) != WATER);
+
+                // Рисуем отдельно последний блок если он верхняя вода
+                if (isTopWater && dy > 1)
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy - 1,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, -1), trans);
+
+                    AddQuad(glm::vec3(x, y + dy - 1, z),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, -1), trans);
+                }
+                else if (isTopWater && dy == 1)
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 0.9f, 0), 1,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, -1), trans);
+                }
+                else
+                {
+                    AddQuad(glm::vec3(x, y, z),
+                        glm::vec3(1, 0, 0), dx,
+                        glm::vec3(0, 1, 0), dy,
+                        ref.tileID, false,
+                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                        glm::vec3(0, 0, -1), trans);
+                }
             }
     }
-    // (конец GenerateMeshData — только CPU данные, GPU ещё не трогаем)
 }
 
-// UploadToGPU — ТОЛЬКО из главного потока (OpenGL не thread-safe)
 void Chunk::UploadToGPU()
 {
+    // Непрозрачный меш
     if (VAO == 0)
     {
         glGenVertexArrays(1, &VAO);
@@ -571,56 +767,87 @@ void Chunk::UploadToGPU()
     }
 
     glBindVertexArray(VAO);
-
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
-
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_DYNAMIC_DRAW);
 
     constexpr int STRIDE = 11 * sizeof(float);
-
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
-
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
-
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
     glEnableVertexAttribArray(2);
-
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
     glEnableVertexAttribArray(3);
-
     glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(8 * sizeof(float)));
     glEnableVertexAttribArray(4);
-
     glBindVertexArray(0);
+
+    // Прозрачный меш
+    if (!verticesT.empty())
+    {
+        if (VAO_T == 0)
+        {
+            glGenVertexArrays(1, &VAO_T);
+            glGenBuffers(1, &VBO_T);
+            glGenBuffers(1, &EBO_T);
+        }
+
+        glBindVertexArray(VAO_T);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_T);
+        glBufferData(GL_ARRAY_BUFFER, verticesT.size() * sizeof(float), verticesT.data(), GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_T);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicesT.size() * sizeof(uint32_t), indicesT.data(), GL_DYNAMIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(4);
+        glBindVertexArray(0);
+    }
 
     state.store(ChunkState::Uploaded);
 }
 
-// BuildMesh — совместимый метод для rebuild после break/place блока.
-// Вызывается только из главного потока.
 void Chunk::BuildMesh()
 {
     GenerateMeshData();
     UploadToGPU();
 }
 
-// FreeGPU — освобождает OpenGL объекты (только из главного потока)
 void Chunk::FreeGPU()
 {
-    if (VAO) { glDeleteVertexArrays(1, &VAO); VAO = 0; }
-    if (VBO) { glDeleteBuffers(1, &VBO);      VBO = 0; }
-    if (EBO) { glDeleteBuffers(1, &EBO);      EBO = 0; }
+    if (VAO) { glDeleteVertexArrays(1, &VAO);   VAO = 0; }
+    if (VBO) { glDeleteBuffers(1, &VBO);         VBO = 0; }
+    if (EBO) { glDeleteBuffers(1, &EBO);         EBO = 0; }
+    if (VAO_T) { glDeleteVertexArrays(1, &VAO_T); VAO_T = 0; }
+    if (VBO_T) { glDeleteBuffers(1, &VBO_T);       VBO_T = 0; }
+    if (EBO_T) { glDeleteBuffers(1, &EBO_T);       EBO_T = 0; }
     vertices.clear();
     indices.clear();
+    verticesT.clear();
+    indicesT.clear();
     state.store(ChunkState::Empty);
 }
 
 void Chunk::Draw()
 {
+    if (indices.empty()) return;
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_INT, 0);
+}
+
+void Chunk::DrawTransparent()
+{
+    if (VAO_T == 0 || indicesT.empty()) return;
+    glBindVertexArray(VAO_T);
+    glDrawElements(GL_TRIANGLES, (GLsizei)indicesT.size(), GL_UNSIGNED_INT, 0);
 }

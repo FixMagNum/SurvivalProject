@@ -8,6 +8,7 @@ enum BlockType
 	STONE,
 	OAK_PLANKS,
 	GLASS,
+	WATER,
 };
 
 struct BlockData

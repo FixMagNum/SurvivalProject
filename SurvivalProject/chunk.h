@@ -63,6 +63,8 @@ public:
 
     void Draw();
 
+    void DrawTransparent();
+
     // Освобождает GPU ресурсы (вызывать из главного потока)
     void FreeGPU();
 
@@ -73,18 +75,27 @@ private:
     void AddQuad(
         glm::vec3 origin,
         glm::vec3 axis1, int w,
-        glm::vec3 axis2, int h,
+        glm::vec3 axis2, float h,  // было int, стало float
         int tileID, bool flipWinding,
-        float ao0, float ao1, float ao2, float ao3, glm::vec3 normal);
+        float ao0, float ao1, float ao2, float ao3,
+        glm::vec3 normal,
+        bool transparent = false);
 
     // Считает AO для одной вершины (0..3, где 3 = светло)
     int ComputeAO(int side1, int side2, int corner);
 
     unsigned int VAO, VBO, EBO;
 
+    // Отдельный VAO/VBO/EBO для прозрачных блоков
+    unsigned int VAO_T, VBO_T, EBO_T;
+
     // CPU-буферы меша (заполняются в GenerateMeshData)
     // AO хранится прямо в вершинах — добавляем 1 float к формату
     // Новый stride: pos(3) + uv(2) + tileOffset(2) + ao(1) + normal(3) = 11 floats
     std::vector<float> vertices;
     std::vector<uint32_t> indices;
+
+    std::vector<float>    verticesT;
+    std::vector<uint32_t> indicesT;
+
 };

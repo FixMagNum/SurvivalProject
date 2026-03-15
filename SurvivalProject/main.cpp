@@ -58,6 +58,7 @@ uniform vec3  uSunColor;     // цвет солнца (меняется день
 uniform vec3  uMoonDir;
 uniform vec3  uMoonColor;
 uniform float uAmbient;      // минимальная яркость (ночью меньше)
+uniform bool  uTransparentPass; // новый uniform
 
 const float TILE_SIZE = 1.0 / 16.0;
 
@@ -293,8 +294,9 @@ int main()
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
 
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true);
@@ -529,7 +531,7 @@ int main()
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.3f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
@@ -537,6 +539,8 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
+        unsigned int transparentPassLoc = glGetUniformLocation(shaderProgram, "uTransparentPass");
+        glUniform1i(transparentPassLoc, 0);
         glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0);
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
@@ -563,6 +567,26 @@ int main()
             }
         }
         lastVisibleChunks = visibleChunks;
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+
+        glUniform1i(transparentPassLoc, 1); // включаем прозрачность
+
+        {
+            std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+            for (auto& [key, chunk] : world.chunkMap)
+            {
+                if (chunk->state.load() != ChunkState::Uploaded) continue;
+                if (frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
+                    chunk->DrawTransparent();
+            }
+        }
+
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glUniform1i(transparentPassLoc, 0);
 
         // Крестик (2D поверх всего)
         glDisable(GL_DEPTH_TEST);
