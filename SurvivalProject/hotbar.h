@@ -9,7 +9,7 @@ public:
     static const int SLOTS = 9;
 
     BlockType slots[SLOTS] = {
-        GRASS, DIRT, STONE, OAK_PLANKS, GLASS, AIR, AIR, AIR, AIR
+        GRASS, DIRT, STONE, OAK_PLANKS, WATER, AIR, AIR, AIR, AIR
     };
 
     int activeSlot = 0;

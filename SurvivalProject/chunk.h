@@ -46,6 +46,8 @@ public:
     
     std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
 
+    std::vector<uint32_t> indicesT;
+
     Chunk(int chunkX, int chunkZ, World* worldPtr);
     
     BlockType blocks[SIZE_X][SIZE_Y][SIZE_Z];
@@ -96,6 +98,4 @@ private:
     std::vector<uint32_t> indices;
 
     std::vector<float>    verticesT;
-    std::vector<uint32_t> indicesT;
-
 };

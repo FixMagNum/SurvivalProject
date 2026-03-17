@@ -1,14 +1,17 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/norm.hpp>
 #include "camera.h"
 #include "player.h"
 #include "world.h"
 #include "frustum.h"
 #include <iostream>
 #include <string>
+#include <algorithm>
 #include <stb_image.h>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -28,6 +31,7 @@ out vec2 TexCoord;
 out vec2 TileOffset;
 out float AO;
 out vec3 Normal;
+out vec3 FragPos;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -36,6 +40,7 @@ uniform mat4 projection;
 void main()
 {
     gl_Position = projection * view * model * vec4(aPos, 1.0);
+    FragPos = (model * vec4(aPos, 1.0)).xyz;
     TexCoord = aTexCoord;
     TileOffset = aTileOffset;
     AO = aAO;
@@ -51,14 +56,18 @@ in vec2 TexCoord;
 in vec2 TileOffset;
 in float AO;
 in vec3 Normal;
+in vec3 FragPos;
 
 uniform sampler2D texture1;
-uniform vec3  uSunDir;       // направление к солнцу (нормализованное)
-uniform vec3  uSunColor;     // цвет солнца (меняется день/ночь)
+uniform vec3  uSunDir;          // направление к солнцу (нормализованное)
+uniform vec3  uSunColor;        // цвет солнца (меняется день/ночь)
 uniform vec3  uMoonDir;
 uniform vec3  uMoonColor;
-uniform float uAmbient;      // минимальная яркость (ночью меньше)
+uniform float uAmbient;         // минимальная яркость (ночью меньше)
 uniform bool  uTransparentPass; // новый uniform
+uniform vec3  uCameraPos;       // позиция камеры
+uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
+uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
 
 const float TILE_SIZE = 1.0 / 16.0;
 
@@ -75,16 +84,21 @@ void main()
     float sunFade  = smoothstep(-0.1, 0.15, uSunDir.y);
     float moonFade = smoothstep(-0.1, 0.15, uMoonDir.y);
 
-    vec3 diffuse = sunDiff  * uSunColor  * sunFade
-                 + moonDiff * uMoonColor * moonFade;
+    // Свет без AO, масштабируем на daylight
+    vec3 light = (uSunColor  * sunFade  * sunDiff
+               +  uMoonColor * moonFade * moonDiff
+               +  vec3(uAmbient)) * uDaylight;
 
-    float light = (uAmbient + diffuse.r + diffuse.g + diffuse.b) / 3.0 * aoFactor;
-    light = clamp(light, 0.0, 1.0);
+    // AO применяем отдельно — он не зависит от времени суток
+    FragColor = clamp(texColor * vec4(light, 1.0), 0.0, 1.0);
+    FragColor.rgb *= aoFactor;
 
-    FragColor = texColor * vec4(uSunColor * sunFade * sunDiff 
-                              + uMoonColor * moonFade * moonDiff 
-                              + vec3(uAmbient), 1.0) * aoFactor;
-    FragColor = clamp(FragColor, 0.0, 1.0) * texColor;
+    // Туман и гамма
+    float dist = length(FragPos - uCameraPos);
+    float fogFactor = clamp((dist - 80.0) / (160.0 - 80.0), 0.0, 1.0);
+
+    FragColor.rgb = pow(FragColor.rgb, vec3(1.0 / 2.2));
+    FragColor.rgb = mix(FragColor.rgb, uSkyColor, fogFactor);
 }
 )";
 
@@ -304,7 +318,8 @@ int main()
     if (data)
     {
         GLenum fmt = (nrChannels == 4) ? GL_RGBA : (nrChannels == 3 ? GL_RGB : GL_RED);
-        glTexImage2D(GL_TEXTURE_2D, 0, fmt, width, height, 0, fmt, GL_UNSIGNED_BYTE, data);
+        GLenum fmtSRGB = (nrChannels == 4) ? GL_SRGB_ALPHA : (nrChannels == 3 ? GL_SRGB : GL_RED);
+        glTexImage2D(GL_TEXTURE_2D, 0, fmtSRGB, width, height, 0, fmt, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
     }
     else std::cout << "Failed to load texture\n";
@@ -318,6 +333,7 @@ int main()
     hotbar.slots[2] = STONE;
     hotbar.slots[3] = OAK_PLANKS;
     hotbar.slots[4] = GLASS;
+    hotbar.slots[5] = WATER;
 
     // Мир
     World world;
@@ -497,7 +513,7 @@ int main()
         // День: голубое небо, Закат: оранжевое, Ночь: тёмно-синее
         glm::vec3 skyDay = glm::vec3(0.5f, 0.7f, 1.0f);
         glm::vec3 skySunset = glm::vec3(1.0f, 0.4f, 0.1f);
-        glm::vec3 skyNight = glm::vec3(0.02f, 0.02f, 0.08f);
+        glm::vec3 skyNight = glm::vec3(0.0002f, 0.0002f, 0.0008f);
 
         glm::vec3 skyColor;
         float ambient;
@@ -528,14 +544,18 @@ int main()
         float moonFade = glm::smoothstep(-0.1f, 0.15f, moonHeight);
         glm::vec3 moonColor = glm::vec3(0.2f, 0.25f, 0.4f) * moonFade;
 
+        // Плавный переход день/ночь — 1.0 днём, 0.005 ночью
+        float daylight = glm::clamp(sunHeight * 3.0f + 0.5f, 0.005f, 1.0f);
+
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.3f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
-        glClearColor(skyColor.r, skyColor.g, skyColor.b, 1.0f);
+        glm::vec3 skyColorGamma = glm::pow(skyColor, glm::vec3(1.0f / 2.2f));
+        glClearColor(skyColorGamma.r, skyColorGamma.g, skyColorGamma.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
@@ -550,6 +570,9 @@ int main()
         glUniform3fv(moonDirLoc, 1, glm::value_ptr(moonDir));
         glUniform3fv(moonColorLoc, 1, glm::value_ptr(moonColor));
         glUniform1f(ambientLoc, ambient);
+        glUniform1f(glGetUniformLocation(shaderProgram, "uDaylight"), daylight);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "uCameraPos"), 1, glm::value_ptr(camera.Position));
+        glUniform3fv(glGetUniformLocation(shaderProgram, "uSkyColor"), 1, glm::value_ptr(skyColorGamma));
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -576,12 +599,30 @@ int main()
 
         {
             std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+
+            // Собираем видимые чанки с прозрачным мешом
+            std::vector<Chunk*> transparentChunks;
             for (auto& [key, chunk] : world.chunkMap)
             {
                 if (chunk->state.load() != ChunkState::Uploaded) continue;
-                if (frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
-                    chunk->DrawTransparent();
+                if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
+                if (chunk->indicesT.empty()) continue;
+                transparentChunks.push_back(chunk.get());
             }
+
+            // Сортируем от дальних к ближним
+            glm::vec3 camPos = camera.Position;
+            std::sort(transparentChunks.begin(), transparentChunks.end(),
+                [&camPos](Chunk* a, Chunk* b) {
+                    glm::vec3 centerA = (a->bounds.min + a->bounds.max) * 0.5f;
+                    glm::vec3 centerB = (b->bounds.min + b->bounds.max) * 0.5f;
+                    float distA = glm::length2(centerA - camPos);
+                    float distB = glm::length2(centerB - camPos);
+                    return distA > distB; // дальние первыми
+                });
+
+            for (Chunk* chunk : transparentChunks)
+                chunk->DrawTransparent();
         }
 
         glDepthMask(GL_TRUE);

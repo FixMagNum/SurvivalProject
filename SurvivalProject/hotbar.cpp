@@ -29,6 +29,7 @@ static int GetTopTile(BlockType type)
     case STONE:      return tile(3, 0);
     case OAK_PLANKS: return tile(5, 0);
     case GLASS:      return tile(6, 0);
+	case WATER:      return tile(7, 0);
     default:         return -1;
     }
 }
@@ -70,6 +71,8 @@ void main()
         FragColor = texture(uAtlas, vUV) * vColor;
     else
         FragColor = vColor;
+
+    FragColor.rgb = pow(FragColor.rgb, vec3(1.0 / 2.2));
 }
 )";
 
@@ -164,7 +167,7 @@ void Hotbar::Draw(float screenW, float screenH)
     for (int i = 0; i < SLOTS; i++)
     {
         float x = startX + i * (SLOT_SIZE + PADDING);
-        float r = 0.2f, g = 0.2f, b = 0.2f, a = 0.75f;
+        float r = 0.0f, g = 0.0f, b = 0.0f, a = 0.25f;
         BuildQuad(buf, off, x, startY, SLOT_SIZE, SLOT_SIZE,
             0, 0, 0, 0, r, g, b, a);
     }

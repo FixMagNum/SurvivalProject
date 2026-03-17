@@ -222,7 +222,6 @@ void Chunk::GenerateMeshData()
         return b == GLASS || b == WATER;
         };
 
-    // Для AO вода и стекло не считаются solid
     auto solid = [&](int x, int y, int z) -> int {
         BlockType b = getBlock(x, y, z);
         return (b != AIR && !isTransparent(b)) ? 1 : 0;
@@ -298,11 +297,7 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
 
-                // 0.9f только если сверху нет воды
-                bool isTopWater = (cur == WATER) && (getBlock(x, y + 1, z) != WATER);
-                float topY = isTopWater ? y + 0.9f : y + 1.0f;
-
-                AddQuad(glm::vec3(x, topY, z),
+                AddQuad(glm::vec3(x, y + 1.0f, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
@@ -420,53 +415,15 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[z + iz][y + iy] = true;
 
-                // Стало — для воды учитываем высоту верхнего слоя:
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
 
-                // Если это верхний слой воды — высота 0.9, иначе 1.0
-                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
-                    && (getBlock(x, y + dy, z) != WATER);
-
-                // Рисуем отдельно последний блок если он верхняя вода
-                if (isTopWater && dy > 1)
-                {
-                    // Нижние блоки — полная высота
-                    AddQuad(glm::vec3(x + 1, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 1, 0), dy - 1,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(1, 0, 0), trans);
-
-                    // Верхний блок — 0.9 высота
-                    AddQuad(glm::vec3(x + 1, y + dy - 1, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 0.9f, 0), 1,  // высота 0.9
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(1, 0, 0), trans);
-                }
-                else if (isTopWater && dy == 1)
-                {
-                    // Один блок воды — просто 0.9
-                    AddQuad(glm::vec3(x + 1, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(1, 0, 0), trans);
-                }
-                else
-                {
-                    // Обычный блок — полная высота
-                    AddQuad(glm::vec3(x + 1, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 1, 0), dy,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(1, 0, 0), trans);
-                }
+                AddQuad(glm::vec3(x + 1, y, z),
+                    glm::vec3(0, 0, 1), dz,
+                    glm::vec3(0, 1, 0), dy,
+                    ref.tileID, false,
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(1, 0, 0), trans);
             }
     }
 
@@ -519,49 +476,15 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[z + iz][y + iy] = true;
 
-                // Для воды учитываем высоту верхнего слоя:
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
 
-                // Если это верхний слой воды — высота 0.9, иначе 1.0
-                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
-                    && (getBlock(x, y + dy, z) != WATER);
-
-                // Рисуем отдельно последний блок если он верхняя вода
-                if (isTopWater && dy > 1)
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 1, 0), dy - 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(-1, 0, 0), trans);
-
-                    AddQuad(glm::vec3(x, y + dy - 1, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(-1, 0, 0), trans);
-                }
-                else if (isTopWater && dy == 1)
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(-1, 0, 0), trans);
-                }
-                else
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(0, 0, 1), dz,
-                        glm::vec3(0, 1, 0), dy,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(-1, 0, 0), trans);
-                }
+                AddQuad(glm::vec3(x, y, z),
+                    glm::vec3(0, 0, 1), dz,
+                    glm::vec3(0, 1, 0), dy,
+                    ref.tileID, true,
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(-1, 0, 0), trans);
             }
     }
 
@@ -614,49 +537,15 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[x + ix][y + iy] = true;
 
-                // Для воды учитываем высоту верхнего слоя:
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
 
-                // Если это верхний слой воды — высота 0.9, иначе 1.0
-                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
-                    && (getBlock(x, y + dy, z) != WATER);
-
-                // Рисуем отдельно последний блок если он верхняя вода
-                if (isTopWater && dy > 1)
-                {
-                    AddQuad(glm::vec3(x, y, z + 1),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 1, 0), dy - 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, 1), trans);
-
-                    AddQuad(glm::vec3(x, y + dy - 1, z + 1),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, 1), trans);
-                }
-                else if (isTopWater && dy == 1)
-                {
-                    AddQuad(glm::vec3(x, y, z + 1),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, 1), trans);
-                }
-                else
-                {
-                    AddQuad(glm::vec3(x, y, z + 1),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 1, 0), dy,
-                        ref.tileID, true,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, 1), trans);
-                }
+                AddQuad(glm::vec3(x, y, z + 1),
+                    glm::vec3(1, 0, 0), dx,
+                    glm::vec3(0, 1, 0), dy,
+                    ref.tileID, true,
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, 0, 1), trans);
             }
     }
 
@@ -709,49 +598,15 @@ void Chunk::GenerateMeshData()
                     for (int iy = 0; iy < dy; iy++)
                         used[x + ix][y + iy] = true;
 
-                // Для воды учитываем высоту верхнего слоя:
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
 
-                // Если это верхний слой воды — высота 0.9, иначе 1.0
-                bool isTopWater = (cur == WATER) && (getBlock(x, y + dy - 1, z) == WATER)
-                    && (getBlock(x, y + dy, z) != WATER);
-
-                // Рисуем отдельно последний блок если он верхняя вода
-                if (isTopWater && dy > 1)
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 1, 0), dy - 1,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, -1), trans);
-
-                    AddQuad(glm::vec3(x, y + dy - 1, z),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, -1), trans);
-                }
-                else if (isTopWater && dy == 1)
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 0.9f, 0), 1,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, -1), trans);
-                }
-                else
-                {
-                    AddQuad(glm::vec3(x, y, z),
-                        glm::vec3(1, 0, 0), dx,
-                        glm::vec3(0, 1, 0), dy,
-                        ref.tileID, false,
-                        ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                        glm::vec3(0, 0, -1), trans);
-                }
+                AddQuad(glm::vec3(x, y, z),
+                    glm::vec3(1, 0, 0), dx,
+                    glm::vec3(0, 1, 0), dy,
+                    ref.tileID, false,
+                    ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
+                    glm::vec3(0, 0, -1), trans);
             }
     }
 }
