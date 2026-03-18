@@ -1,4 +1,5 @@
 #include "player.h"
+
 #include <cmath>
 
 Player::Player(glm::vec3 spawnPos)
@@ -10,7 +11,8 @@ Player::Player(glm::vec3 spawnPos)
 
 bool Player::IsSolid(int x, int y, int z, World& world)
 {
-    return world.GetBlock(x, y, z) != AIR;
+    BlockType b = world.GetBlock(x, y, z);
+    return b != AIR && b != WATER;
 }
 
 void Player::MoveAndCollide(glm::vec3 delta, World& world)
@@ -85,6 +87,8 @@ void Player::Jump()
 {
     if (isGrounded)
         velocity.y = JUMP_SPEED;
+    else if (inWater)
+        velocity.y = JUMP_SPEED * 0.5f;
 }
 
 void Player::Update(float deltaTime, World& world, Camera& camera)
@@ -110,10 +114,21 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     if (glm::length(moveDir) > 0.0f)
         moveDir = glm::normalize(moveDir);
 
+    BlockType feetBlock = world.GetBlock(
+        (int)floor(position.x),
+        (int)floor(position.y),
+        (int)floor(position.z)
+    );
+    bool inWater = (feetBlock == WATER);
+    this->inWater = inWater;
+
+    float speedMult = inWater ? 0.4f : 1.0f;
+    float gravityMult = inWater ? 0.15f : 1.0f;
+
     glm::vec3 delta;
-    delta.x = moveDir.x * MOVE_SPEED * deltaTime;
-    delta.z = moveDir.z * MOVE_SPEED * deltaTime;
-    delta.y = velocity.y * deltaTime;
+    delta.x = moveDir.x * MOVE_SPEED * speedMult * deltaTime;
+    delta.z = moveDir.z * MOVE_SPEED * speedMult * deltaTime;
+    delta.y = velocity.y * gravityMult * deltaTime;
 
     MoveAndCollide(delta, world);
 

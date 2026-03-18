@@ -68,6 +68,7 @@ uniform bool  uTransparentPass; // новый uniform
 uniform vec3  uCameraPos;       // позиция камеры
 uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
 uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
+uniform bool uUnderwater;
 
 const float TILE_SIZE = 1.0 / 16.0;
 
@@ -98,6 +99,13 @@ void main()
     float fogFactor = clamp((dist - 80.0) / (160.0 - 80.0), 0.0, 1.0);
 
     FragColor.rgb = pow(FragColor.rgb, vec3(1.0 / 2.2));
+
+    if (uUnderwater)
+    {
+    vec3 waterColor = vec3(78.0/256.0, 106.0/256.0, 180.0/256.0);
+    FragColor.rgb = mix(FragColor.rgb, waterColor, 0.5);
+    }
+
     FragColor.rgb = mix(FragColor.rgb, uSkyColor, fogFactor);
 }
 )";
@@ -547,6 +555,13 @@ int main()
         // Плавный переход день/ночь — 1.0 днём, 0.005 ночью
         float daylight = glm::clamp(sunHeight * 3.0f + 0.5f, 0.005f, 1.0f);
 
+        BlockType cameraBlock = world.GetBlock(
+            (int)floor(camera.Position.x),
+            (int)floor(camera.Position.y),
+            (int)floor(camera.Position.z)
+        );
+        bool underwater = (cameraBlock == WATER);
+
         // Рендер
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
@@ -571,6 +586,7 @@ int main()
         glUniform3fv(moonColorLoc, 1, glm::value_ptr(moonColor));
         glUniform1f(ambientLoc, ambient);
         glUniform1f(glGetUniformLocation(shaderProgram, "uDaylight"), daylight);
+        glUniform1i(glGetUniformLocation(shaderProgram, "uUnderwater"), underwater ? 1 : 0);
         glUniform3fv(glGetUniformLocation(shaderProgram, "uCameraPos"), 1, glm::value_ptr(camera.Position));
         glUniform3fv(glGetUniformLocation(shaderProgram, "uSkyColor"), 1, glm::value_ptr(skyColorGamma));
 
@@ -594,6 +610,7 @@ int main()
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
+        glDisable(GL_CULL_FACE);
 
         glUniform1i(transparentPassLoc, 1); // включаем прозрачность
 
@@ -626,6 +643,7 @@ int main()
         }
 
         glDepthMask(GL_TRUE);
+        glEnable(GL_CULL_FACE);
         glDisable(GL_BLEND);
         glUniform1i(transparentPassLoc, 0);
 

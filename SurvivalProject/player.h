@@ -29,6 +29,7 @@ public:
     bool moveBack = false;
     bool moveLeft = false;
     bool moveRight = false;
+    bool inWater = false;
 
 private:
     // Двигаем по одной оси и сразу резолвим коллизии

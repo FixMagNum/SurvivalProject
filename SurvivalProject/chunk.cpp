@@ -296,8 +296,9 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
+                float topY = (cur == WATER) ? y + 0.9f : y + 1.0f;
 
-                AddQuad(glm::vec3(x, y + 1.0f, z),
+                AddQuad(glm::vec3(x, topY, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
@@ -417,10 +418,16 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
+                float quadH = (float)dy;
+                if (cur == WATER)
+                {
+                    BlockType above = getBlock(x, y + dy, z); // блок над верхней гранью квада
+                    if (above != WATER) quadH = (float)dy - 0.1f; // только верхний блок подрезаем
+                }
 
                 AddQuad(glm::vec3(x + 1, y, z),
                     glm::vec3(0, 0, 1), dz,
-                    glm::vec3(0, 1, 0), dy,
+                    glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
                     glm::vec3(1, 0, 0), trans);
@@ -478,10 +485,16 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
+                float quadH = (float)dy;
+                if (cur == WATER)
+                {
+                    BlockType above = getBlock(x, y + dy, z); // блок над верхней гранью квада
+                    if (above != WATER) quadH = (float)dy - 0.1f; // только верхний блок подрезаем
+                }
 
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(0, 0, 1), dz,
-                    glm::vec3(0, 1, 0), dy,
+                    glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
                     glm::vec3(-1, 0, 0), trans);
@@ -539,10 +552,16 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
+                float quadH = (float)dy;
+                if (cur == WATER)
+                {
+                    BlockType above = getBlock(x, y + dy, z); // блок над верхней гранью квада
+                    if (above != WATER) quadH = (float)dy - 0.1f; // только верхний блок подрезаем
+                }
 
                 AddQuad(glm::vec3(x, y, z + 1),
                     glm::vec3(1, 0, 0), dx,
-                    glm::vec3(0, 1, 0), dy,
+                    glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
                     glm::vec3(0, 0, 1), trans);
@@ -600,10 +619,16 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
+                float quadH = (float)dy;
+                if (cur == WATER)
+                {
+                    BlockType above = getBlock(x, y + dy, z); // блок над верхней гранью квада
+                    if (above != WATER) quadH = (float)dy - 0.1f; // только верхний блок подрезаем
+                }
 
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(1, 0, 0), dx,
-                    glm::vec3(0, 1, 0), dy,
+                    glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
                     glm::vec3(0, 0, -1), trans);
