@@ -28,7 +28,7 @@ BlockData blockDatabase[] =
 	{ Tile(12,0), Tile(12,0), Tile(12,0) },   // SNOW
 };
 
-static const int SEA_LEVEL = 50;
+static const int SEA_LEVEL = 110;
 
 Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
 {
@@ -94,13 +94,13 @@ void Chunk::Generate()
             // Высота рельефа зависит от биома
             int surfaceY;
             if (biome == DESERT)
-                surfaceY = (int)(48.0f + noiseVal * 8.0f);   // плоский
+                surfaceY = (int)(108.0f + noiseVal * 8.0f);   // плоский
             else if (biome == PLAINS)
-                surfaceY = (int)(60.0f + noiseVal * 20.0f);  // средний
+                surfaceY = (int)(120.0f + noiseVal * 20.0f);  // средний
             else if (biome == FOREST)
-                surfaceY = (int)(60.0f + noiseVal * 25.0f);  // средний
+                surfaceY = (int)(120.0f + noiseVal * 25.0f);  // средний
             else // MOUNTAINS
-                surfaceY = (int)(80.0f + noiseVal * 60.0f);  // высокий
+                surfaceY = (int)(140.0f + noiseVal * 60.0f);  // высокий
 
             surfaceY = std::clamp(surfaceY, 1, SIZE_Y - 2);
 
@@ -166,6 +166,20 @@ void Chunk::Generate()
 
             int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
             trunkHeight = std::clamp(trunkHeight, 4, 6);
+
+            // Проверяем есть ли дерево рядом (радиус 3 блока)
+            bool treeNearby = false;
+            for (int dx = -3; dx <= 3 && !treeNearby; dx++)
+                for (int dz = -3; dz <= 3 && !treeNearby; dz++)
+                {
+                    int bx = x + dx;
+                    int bz = z + dz;
+                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
+                    if (blocks[bx][surfaceY + 1][bz] == OAK_LOG)
+                        treeNearby = true;
+                }
+
+            if (treeNearby) continue;
 
             // Ствол
             for (int y = surfaceY + 1; y <= surfaceY + trunkHeight; y++)

@@ -2,6 +2,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 // Позиция тайла в атласе для каждого блока (top face)
 static void GetTileUV(int tileID, float& u0, float& v0, float& u1, float& v1)
@@ -255,4 +257,27 @@ void Hotbar::SetSlot(int index)
 {
     if (index >= 0 && index < SLOTS)
         activeSlot = index;
+}
+
+void Hotbar::Save()
+{
+    std::filesystem::create_directories("saves");
+    std::ofstream f("saves/hotbar.bin", std::ios::binary);
+    if (!f) return;
+    for (int i = 0; i < SLOTS; i++)
+    {
+        f.write((char*)&slots[i], sizeof(BlockType));
+        f.write((char*)&counts[i], sizeof(int));
+    }
+}
+
+void Hotbar::Load()
+{
+    std::ifstream f("saves/hotbar.bin", std::ios::binary);
+    if (!f) return;
+    for (int i = 0; i < SLOTS; i++)
+    {
+        f.read((char*)&slots[i], sizeof(BlockType));
+        f.read((char*)&counts[i], sizeof(int));
+    }
 }

@@ -31,14 +31,14 @@ public:
     int GetSlotAt(float mouseX, float mouseY, float screenW, float screenH);
 
     // Перетаскивание
-    int  dragSlot = -1;      // слот откуда тащим
-    ItemStack dragItem;      // что тащим
-
-    void OnMousePress(float mouseX, float mouseY, float screenW, float screenH);
-    void OnMouseRelease(float mouseX, float mouseY, float screenW, float screenH);
+    int  dragSlot = -1;     // слот откуда тащим
+    ItemStack dragItem;     // что тащим
 
     void OnMousePress(float mouseX, float mouseY, float screenW, float screenH, Hotbar& hotbar);
     void OnMouseRelease(float mouseX, float mouseY, float screenW, float screenH, Hotbar& hotbar);
+
+    void Save();
+    void Load();
 
     // Откуда тащим: true = инвентарь, false = хотбар
     bool dragFromInventory = true;

@@ -2,6 +2,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 constexpr int   ATLAS = 16;
 constexpr float T = 1.0f / ATLAS;
@@ -317,10 +319,11 @@ void Inventory::OnMousePress(float mouseX, float mouseY, float screenW, float sc
     if (hSlot >= 0 && hotbar.slots[hSlot] != AIR)
     {
         dragSlot = hSlot;
-        dragItem = { hotbar.slots[hSlot], 1 };
+        dragItem = { hotbar.slots[hSlot], hotbar.counts[hSlot] }; // реальный count!
         dragFromInventory = false;
         dragFromHotbarSlot = hSlot;
         hotbar.slots[hSlot] = AIR;
+        hotbar.counts[hSlot] = 0; // сбрасываем count
     }
 }
 
@@ -333,34 +336,103 @@ void Inventory::OnMouseRelease(float mouseX, float mouseY, float screenW, float 
 
     if (invSlot >= 0 && !(dragFromInventory && invSlot == dragSlot))
     {
-        // Кладём в инвентарь
-        ItemStack temp = slots[invSlot];
-        slots[invSlot] = dragItem;
-        if (temp.type != AIR)
+        ItemStack& target = slots[invSlot];
+
+        // Если тот же тип — складываем стаки
+        if (target.type == dragItem.type && target.count < 64)
         {
-            // Занятый слот — возвращаем вытесненный предмет откуда взяли
-            if (dragFromInventory) slots[dragSlot] = temp;
-            else hotbar.slots[dragFromHotbarSlot] = temp.type;
+            int canAdd = 64 - target.count;
+            int add = std::min(canAdd, dragItem.count);
+            target.count += add;
+            dragItem.count -= add;
+
+            // Если перетащили всё — возвращать нечего
+            if (dragItem.count <= 0)
+            {
+                dragSlot = -1;
+                dragItem = { AIR, 0 };
+                return;
+            }
+            // Иначе остаток возвращаем откуда взяли
+            if (dragFromInventory) slots[dragSlot] = dragItem;
+            else { hotbar.slots[dragFromHotbarSlot] = dragItem.type; hotbar.counts[dragFromHotbarSlot] = dragItem.count; }
+        }
+        else
+        {
+            // Разные типы — меняем местами
+            ItemStack temp = target;
+            target = dragItem;
+            if (temp.type != AIR)
+            {
+                if (dragFromInventory) slots[dragSlot] = temp;
+                else { hotbar.slots[dragFromHotbarSlot] = temp.type; hotbar.counts[dragFromHotbarSlot] = temp.count; } // добавляем temp.count!
+            }
         }
     }
     else if (hbarSlot >= 0 && !(!dragFromInventory && hbarSlot == dragSlot))
     {
-        // Кладём в хотбар
-        BlockType temp = hotbar.slots[hbarSlot];
-        hotbar.slots[hbarSlot] = dragItem.type;
-        if (temp != AIR)
+        BlockType targetType = hotbar.slots[hbarSlot];
+        int       targetCount = hotbar.counts[hbarSlot];
+
+        // Если тот же тип — складываем
+        if (targetType == dragItem.type && targetCount < 64)
         {
-            if (dragFromInventory) slots[dragSlot] = { temp, 1 };
-            else hotbar.slots[dragFromHotbarSlot] = temp;
+            int canAdd = 64 - targetCount;
+            int add = std::min(canAdd, dragItem.count);
+            hotbar.counts[hbarSlot] += add;
+            dragItem.count -= add;
+
+            if (dragItem.count <= 0)
+            {
+                dragSlot = -1;
+                dragItem = { AIR, 0 };
+                return;
+            }
+            if (dragFromInventory) slots[dragSlot] = dragItem;
+            else { hotbar.slots[dragFromHotbarSlot] = dragItem.type; hotbar.counts[dragFromHotbarSlot] = dragItem.count; }
+        }
+        else
+        {
+            // Разные типы — меняем местами
+            hotbar.slots[hbarSlot] = dragItem.type;
+            hotbar.counts[hbarSlot] = dragItem.count;
+            if (targetType != AIR)
+            {
+                if (dragFromInventory) slots[dragSlot] = { targetType, targetCount };
+                else { hotbar.slots[dragFromHotbarSlot] = targetType; hotbar.counts[dragFromHotbarSlot] = targetCount; }
+            }
         }
     }
     else
     {
         // Возвращаем на место
         if (dragFromInventory) slots[dragSlot] = dragItem;
-        else hotbar.slots[dragFromHotbarSlot] = dragItem.type;
+        else { hotbar.slots[dragFromHotbarSlot] = dragItem.type; hotbar.counts[dragFromHotbarSlot] = dragItem.count; } // добавляем counts!
     }
 
     dragSlot = -1;
     dragItem = { AIR, 0 };
+}
+
+void Inventory::Save()
+{
+    std::filesystem::create_directories("saves");
+    std::ofstream f("saves/inventory.bin", std::ios::binary);
+    if (!f) return;
+    for (int i = 0; i < SIZE; i++)
+    {
+        f.write((char*)&slots[i].type, sizeof(BlockType));
+        f.write((char*)&slots[i].count, sizeof(int));
+    }
+}
+
+void Inventory::Load()
+{
+    std::ifstream f("saves/inventory.bin", std::ios::binary);
+    if (!f) return;
+    for (int i = 0; i < SIZE; i++)
+    {
+        f.read((char*)&slots[i].type, sizeof(BlockType));
+        f.read((char*)&slots[i].count, sizeof(int));
+    }
 }

@@ -14,6 +14,8 @@ public:
 
     int activeSlot = 0;
 
+    int counts[SLOTS] = { 0,0,0,0,0,0,0,0,0 };
+
     Hotbar();
     ~Hotbar();
 
@@ -22,6 +24,9 @@ public:
 
     void ScrollSlot(int delta); // +1 или -1
     void SetSlot(int index);
+
+    void Save();
+    void Load();
 
     BlockType GetActiveBlock() const { return slots[activeSlot]; }
 

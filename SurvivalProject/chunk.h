@@ -28,7 +28,7 @@ public:
 
 	// Размеры чанка
     static const int SIZE_X = 16;
-    static const int SIZE_Y = 256;
+    static const int SIZE_Y = 512;
     static const int SIZE_Z = 16;
 
     int minY = 0;

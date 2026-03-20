@@ -134,6 +134,24 @@ out vec4 FragColor;
 void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
 )";
 
+const char* outlineVertSrc = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+void main()
+{
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+}
+)";
+
+const char* outlineFragSrc = R"(
+#version 330 core
+out vec4 FragColor;
+void main() { FragColor = vec4(0.0, 0.0, 0.0, 1.0); }
+)";
+
 // Глобальные переменные
 Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 Player player(glm::vec3(0.0f, 120.0f, 0.0f));
@@ -332,6 +350,7 @@ int main()
     // Шейдеры
     unsigned int shaderProgram = CompileShader(vertexShaderSource, fragmentShaderSource);
     unsigned int crosshairProgram = CompileShader(crosshairVertSrc, crosshairFragSrc);
+    unsigned int outlineProgram = CompileShader(outlineVertSrc, outlineFragSrc);
 
     float ch = 5.0f;    // длина
     float th = 1.0f;    // толщина
@@ -361,6 +380,32 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, chVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(crosshairVerts), crosshairVerts, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    float s = 0.502f; // чуть больше 0.5 чтобы не z-fighting
+    float cubeVerts[] = {
+        // 8 вершин куба
+        -s,-s,-s,  s,-s,-s,  s, s,-s,  -s, s,-s,
+        -s,-s, s,  s,-s, s,  s, s, s,  -s, s, s,
+    };
+    unsigned int cubeInds[] = {
+        0,1, 1,2, 2,3, 3,0, // нижняя грань
+        4,5, 5,6, 6,7, 7,4, // верхняя грань
+        0,4, 1,5, 2,6, 3,7  // вертикальные рёбра
+    };
+
+    unsigned int outlineVAO, outlineVBO, outlineEBO;
+    glGenVertexArrays(1, &outlineVAO);
+    glGenBuffers(1, &outlineVBO);
+    glGenBuffers(1, &outlineEBO);
+
+    glBindVertexArray(outlineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, outlineVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVerts), cubeVerts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, outlineEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeInds), cubeInds, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 
@@ -395,6 +440,9 @@ int main()
 
     hotbar.Init(textureID);
     inventory.Init(textureID);
+
+    inventory.Load();
+    hotbar.Load();
 
     // Мир
     World world;
@@ -464,7 +512,31 @@ int main()
         player.moveLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         player.moveRight = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
         player.isSprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
-        player.isCrouching = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+        bool wantsCrouch = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+
+        // Если хочет встать — проверяем есть ли место
+        if (!wantsCrouch && player.isCrouching)
+        {
+            // Проверяем есть ли место для полного роста
+            float half = Player::WIDTH / 2.0f;
+            int minX = (int)floor(player.position.x - half);
+            int maxX = (int)floor(player.position.x + half - 0.001f);
+            int minZ = (int)floor(player.position.z - half);
+            int maxZ = (int)floor(player.position.z + half - 0.001f);
+            int topY = (int)floor(player.position.y + Player::HEIGHT - 0.001f);
+
+            bool canStand = true;
+            for (int x = minX; x <= maxX && canStand; x++)
+                for (int z = minZ; z <= maxZ && canStand; z++)
+                    if (player.IsSolid(x, topY, z, world))
+                        canStand = false;
+
+            player.isCrouching = !canStand; // встаём только если есть место
+        }
+        else
+        {
+            player.isCrouching = wantsCrouch;
+        }
 
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
@@ -506,18 +578,47 @@ int main()
                 {
                     bool placed = false;
 
-                    // Ищем свободный слот в хотбаре
+                    // Сначала ищем существующий стак в хотбаре
                     for (int i = 0; i < Hotbar::SLOTS; i++)
                     {
-                        if (hotbar.slots[i] == AIR)
+                        if (hotbar.slots[i] == broken && hotbar.counts[i] < 64)
                         {
-                            hotbar.slots[i] = broken;
+                            hotbar.counts[i]++;
                             placed = true;
                             break;
                         }
                     }
 
-                    // Если хотбар полный — ищем свободный слот в инвентаре
+                    // Потом существующий стак в инвентаре
+                    if (!placed)
+                    {
+                        for (int i = 0; i < Inventory::SIZE; i++)
+                        {
+                            if (inventory.slots[i].type == broken && inventory.slots[i].count < 64)
+                            {
+                                inventory.slots[i].count++;
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Только если нигде нет — свободный слот в хотбаре
+                    if (!placed)
+                    {
+                        for (int i = 0; i < Hotbar::SLOTS; i++)
+                        {
+                            if (hotbar.slots[i] == AIR)
+                            {
+                                hotbar.slots[i] = broken;
+                                hotbar.counts[i] = 1;
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Потом свободный слот в инвентаре
                     if (!placed)
                     {
                         for (int i = 0; i < Inventory::SIZE; i++)
@@ -561,6 +662,11 @@ int main()
                     // Используем активный блок при ПКМ
                     world.SetBlock(placeX, placeY, placeZ, hotbar.GetActiveBlock());
                     world.RebuildChunkAt(placeX, placeY, placeZ);
+
+                    // Трата блока 
+                    hotbar.counts[hotbar.activeSlot]--;
+                    if (hotbar.counts[hotbar.activeSlot] <= 0)
+                        hotbar.slots[hotbar.activeSlot] = AIR;
                 }
             }
         }
@@ -601,8 +707,92 @@ int main()
         ImGui::Text("Time: %.2f", g_timeOfDay);
         ImGui::End();
 
+        // Счётчики в хотбаре
+        constexpr float SLOT_SIZE = 50.0f;
+        constexpr float PADDING = 4.0f;
+        float totalW = Hotbar::SLOTS * SLOT_SIZE + (Hotbar::SLOTS - 1) * PADDING;
+        float startX = (g_width - totalW) / 2.0f;
+        float startY = g_height - SLOT_SIZE - 16.0f;
+
+        for (int i = 0; i < Hotbar::SLOTS; i++)
+        {
+            if (hotbar.slots[i] == AIR) continue;
+
+            float x = startX + i * (SLOT_SIZE + PADDING);
+
+            // Позиционируем текст в правом нижнем углу слота
+            ImGui::SetNextWindowPos(ImVec2(x + SLOT_SIZE - 18.0f, startY + SLOT_SIZE - 18.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(20.0f, 18.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.0f);
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+
+            ImGui::Begin(("##count" + std::to_string(i)).c_str(), nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoInputs |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoBringToFrontOnFocus);
+            
+            ImGui::SetCursorPos(ImVec2(1, 1));                              // смещение тени
+            ImGui::TextColored(ImVec4(0, 0, 0, 1), "%d", hotbar.counts[i]); // тёмный
+            ImGui::SetCursorPos(ImVec2(0, 0));                              // основной текст
+            ImGui::Text("%d", hotbar.counts[i]);                            // белый
+            
+            ImGui::End();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
+        }
+
+        if (inventory.isOpen)
+        {
+            constexpr float INV_SLOT_SIZE = 50.0f;
+            constexpr float INV_PADDING = 4.0f;
+            float invTotalW = Inventory::COLS * INV_SLOT_SIZE + (Inventory::COLS - 1) * INV_PADDING;
+            float invTotalH = Inventory::ROWS * INV_SLOT_SIZE + (Inventory::ROWS - 1) * INV_PADDING;
+            float invStartX = (g_width - invTotalW) / 2.0f;
+            float invStartY = (g_height - invTotalH) / 2.0f;
+
+            for (int i = 0; i < Inventory::SIZE; i++)
+            {
+                if (inventory.slots[i].type == AIR) continue;
+                if (inventory.dragFromInventory && i == inventory.dragSlot) continue;
+
+                int row = i / Inventory::COLS;
+                int col = i % Inventory::COLS;
+                float x = invStartX + col * (INV_SLOT_SIZE + INV_PADDING);
+                float y = invStartY + row * (INV_SLOT_SIZE + INV_PADDING);
+
+                ImGui::SetNextWindowPos(ImVec2(x + INV_SLOT_SIZE - 18.0f, y + INV_SLOT_SIZE - 18.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(20.0f, 18.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowBgAlpha(0.0f);
+
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+
+                ImGui::Begin(("##invcount" + std::to_string(i)).c_str(), nullptr,
+                    ImGuiWindowFlags_NoDecoration |
+                    ImGuiWindowFlags_NoInputs |
+                    ImGuiWindowFlags_NoMove |
+                    ImGuiWindowFlags_NoSavedSettings |
+                    ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+                ImGui::SetCursorPos(ImVec2(1, 1));
+                ImGui::TextColored(ImVec4(0, 0, 0, 1), "%d", inventory.slots[i].count);
+                ImGui::SetCursorPos(ImVec2(0, 0));
+                ImGui::Text("%d", inventory.slots[i].count);
+
+                ImGui::End();
+                ImGui::PopStyleColor(2);
+                ImGui::PopStyleVar();
+            }
+        }
+
         // Цикл дня/ночи
-        g_timeOfDay += deltaTime * 0.001f; // 100 секунд = одни сутки
+        g_timeOfDay += deltaTime * 0.001f; // 1000 секунд = одни сутки
         if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
 
         // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
@@ -755,6 +945,25 @@ int main()
         glEnable(GL_CULL_FACE);
         glUniform1i(transparentPassLoc, 0);
 
+        // Подсветка блока
+        if (hit.hit)
+        {
+            glm::mat4 outlineModel = glm::translate(glm::mat4(1.0f),
+                glm::vec3(hit.worldX + 0.5f, hit.worldY + 0.5f, hit.worldZ + 0.5f));
+
+            glUseProgram(outlineProgram);
+            glUniformMatrix4fv(glGetUniformLocation(outlineProgram, "model"), 1, GL_FALSE, glm::value_ptr(outlineModel));
+            glUniformMatrix4fv(glGetUniformLocation(outlineProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(glGetUniformLocation(outlineProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+
+            glDisable(GL_CULL_FACE);
+            glLineWidth(2.0f);
+            glBindVertexArray(outlineVAO);
+            glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+            glEnable(GL_CULL_FACE);
+        }
+
         // Крестик (2D поверх всего)
         glDisable(GL_DEPTH_TEST);
         glUseProgram(crosshairProgram);
@@ -791,6 +1000,9 @@ int main()
     ImGui::DestroyContext();
 
     SavePlayerPos(player.position);
+
+    inventory.Save();
+    hotbar.Save();
 
     glfwTerminate();
     return 0;

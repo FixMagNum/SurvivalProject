@@ -98,6 +98,8 @@ void Player::Jump()
 
 void Player::Update(float deltaTime, World& world, Camera& camera)
 {
+    float half = WIDTH / 2.0f;
+
     // Гравитация
     velocity.y += GRAVITY * deltaTime;
 
@@ -142,6 +144,42 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     delta.x = moveDir.x * speed * speedMult * deltaTime;
     delta.z = moveDir.z * speed * speedMult * deltaTime;
     delta.y = velocity.y * gravityMult * deltaTime;
+
+    // Sneak — не падать с края при приседании
+    if (isCrouching && isGrounded)
+    {
+        // Проверяем X
+        glm::vec3 testPos = position;
+        testPos.x += delta.x;
+        int bx = (int)floor(testPos.x - half);
+        int bx2 = (int)floor(testPos.x + half - 0.001f);
+        int by = (int)floor(position.y) - 1;
+        int bz1 = (int)floor(position.z - half);
+        int bz2 = (int)floor(position.z + half - 0.001f);
+
+        bool solidUnderX = false;
+        for (int x = bx; x <= bx2 && !solidUnderX; x++)
+            for (int z = bz1; z <= bz2 && !solidUnderX; z++)
+                if (IsSolid(x, by, z, world)) solidUnderX = true;
+
+        if (!solidUnderX) delta.x = 0.0f;
+
+        // Проверяем Z
+        testPos = position;
+        testPos.z += delta.z;
+        int bz = (int)floor(testPos.z - half);
+        int bz_2 = (int)floor(testPos.z + half - 0.001f);
+        int by2 = (int)floor(position.y) - 1;
+        int bx1 = (int)floor(position.x - half);
+        int bx_2 = (int)floor(position.x + half - 0.001f);
+
+        bool solidUnderZ = false;
+        for (int x = bx1; x <= bx_2 && !solidUnderZ; x++)
+            for (int z = bz; z <= bz_2 && !solidUnderZ; z++)
+                if (IsSolid(x, by2, z, world)) solidUnderZ = true;
+
+        if (!solidUnderZ) delta.z = 0.0f;
+    }
 
     MoveAndCollide(delta, world);
 

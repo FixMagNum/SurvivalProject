@@ -30,6 +30,8 @@ public:
 
     void Update(float deltaTime, World& world, Camera& camera);
     void Jump();
+    // Возвращает true если блок твёрдый
+    bool IsSolid(int x, int y, int z, World& world);
 
     // Флаги движения — устанавливать каждый кадр из main
     bool moveForward = false;
@@ -41,7 +43,4 @@ public:
 private:
     // Двигаем по одной оси и сразу резолвим коллизии
     void MoveAndCollide(glm::vec3 delta, World& world);
-
-    // Возвращает true если блок твёрдый
-    bool IsSolid(int x, int y, int z, World& world);
 };
