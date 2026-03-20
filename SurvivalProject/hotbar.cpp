@@ -24,12 +24,16 @@ static int GetTopTile(BlockType type)
 
     switch (type)
     {
-    case GRASS:      return tile(2, 0);
-    case DIRT:       return tile(0, 0);
-    case STONE:      return tile(3, 0);
-    case OAK_PLANKS: return tile(5, 0);
-    case GLASS:      return tile(6, 0);
-	case WATER:      return tile(7, 0);
+    case GRASS:      return tile(2,  0);
+    case DIRT:       return tile(0,  0);
+    case STONE:      return tile(3,  0);
+    case OAK_PLANKS: return tile(5,  0);
+    case GLASS:      return tile(6,  0);
+	case WATER:      return tile(7,  0);
+	case OAK_LOG:    return tile(8,  0);
+	case OAK_LEAVES: return tile(10, 0);
+	case SAND:       return tile(11, 0);
+	case SNOW:       return tile(12, 0);
     default:         return -1;
     }
 }

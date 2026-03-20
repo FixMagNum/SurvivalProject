@@ -13,10 +13,13 @@
 #include <string>
 #include <algorithm>
 #include <stb_image.h>
+#include <filesystem>
+#include <fstream>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "hotbar.h"
+#include "inventory.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -68,7 +71,7 @@ uniform bool  uTransparentPass; // новый uniform
 uniform vec3  uCameraPos;       // позиция камеры
 uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
 uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
-uniform bool uUnderwater;
+uniform bool  uUnderwater;
 
 const float TILE_SIZE = 1.0 / 16.0;
 
@@ -76,6 +79,9 @@ void main()
 {
     vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
     vec4 texColor = texture(texture1, uv);
+
+    if (uTransparentPass && texColor.a < 0.5)
+        discard;
 
     float sunDiff  = max(dot(Normal, uSunDir),  0.0);
     float moonDiff = max(dot(Normal, uMoonDir), 0.0);
@@ -131,6 +137,8 @@ void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
 // Глобальные переменные
 Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 Player player(glm::vec3(0.0f, 120.0f, 0.0f));
+Hotbar hotbar;
+Inventory inventory;
 
 static double g_scrollDelta = 0.0;
 static float g_timeOfDay = 0.0f; // 0.0 = рассвет, 0.5 = закат, 1.0 = рассвет
@@ -145,6 +153,8 @@ static int  g_windowedW = 800, g_windowedH = 600;
 // Флаги кликов мыши (устанавливаются в callback, читаются в game loop)
 static bool g_leftClick = false;
 static bool g_rightClick = false;
+
+static double g_mouseX = 0.0, g_mouseY = 0.0;
 
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
@@ -161,10 +171,21 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    g_mouseX = xpos;
+    g_mouseY = ypos;
+
     static float lastX = 400, lastY = 300;
     static bool  firstMouse = true;
 
     if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
+
+    if (inventory.isOpen)
+    {
+        // Обновляем lastX/lastY чтобы не было рывка при закрытии
+        lastX = (float)xpos;
+        lastY = (float)ypos;
+        return;
+    }
 
     float xoffset = (float)xpos - lastX;
     float yoffset = lastY - (float)ypos;
@@ -176,6 +197,18 @@ static void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
+    if (inventory.isOpen)
+    {
+        if (button == GLFW_MOUSE_BUTTON_LEFT)
+        {
+            if (action == GLFW_PRESS)
+                inventory.OnMousePress((float)g_mouseX, (float)g_mouseY, g_width, g_height, hotbar);
+            else if (action == GLFW_RELEASE)
+                inventory.OnMouseRelease((float)g_mouseX, (float)g_mouseY, g_width, g_height, hotbar);
+        }
+        return; // не передаём клики в мир когда инвентарь открыт
+    }
+
     if (action == GLFW_PRESS)
     {
         if (button == GLFW_MOUSE_BUTTON_LEFT)  g_leftClick = true;
@@ -209,6 +242,13 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 g_windowedW, g_windowedH, 0);
         }
     }
+    
+    if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    {
+        inventory.isOpen = !inventory.isOpen;
+        glfwSetInputMode(window, GLFW_CURSOR,
+            inventory.isOpen ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+    }
 }
 
 // Вспомогательная функция компиляции шейдера
@@ -230,6 +270,26 @@ static unsigned int CompileShader(const char* vert, const char* frag)
     glDeleteShader(vs);
     glDeleteShader(fs);
     return prog;
+}
+
+static void SavePlayerPos(glm::vec3 pos)
+{
+    std::filesystem::create_directories("saves");
+    std::ofstream f("saves/player.bin", std::ios::binary);
+    if (!f) return;
+    f.write((char*)&pos.x, sizeof(float));
+    f.write((char*)&pos.y, sizeof(float));
+    f.write((char*)&pos.z, sizeof(float));
+}
+
+static bool LoadPlayerPos(glm::vec3& pos)
+{
+    std::ifstream f("saves/player.bin", std::ios::binary);
+    if (!f) return false;
+    f.read((char*)&pos.x, sizeof(float));
+    f.read((char*)&pos.y, sizeof(float));
+    f.read((char*)&pos.z, sizeof(float));
+    return true;
 }
 
 int main()
@@ -333,15 +393,8 @@ int main()
     else std::cout << "Failed to load texture\n";
     stbi_image_free(data);
 
-    Hotbar hotbar;
     hotbar.Init(textureID);
-
-    hotbar.slots[0] = GRASS;
-    hotbar.slots[1] = DIRT;
-    hotbar.slots[2] = STONE;
-    hotbar.slots[3] = OAK_PLANKS;
-    hotbar.slots[4] = GLASS;
-    hotbar.slots[5] = WATER;
+    inventory.Init(textureID);
 
     // Мир
     World world;
@@ -349,6 +402,14 @@ int main()
 
     // Запускаем начальную генерацию через Update
     world.Update(0, 0, camera.Front);
+
+    // Загружаем позицию игрока если есть сохранение
+    glm::vec3 savedPos;
+    if (LoadPlayerPos(savedPos))
+    {
+        player.position = savedPos;
+        camera.Position = savedPos + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
+    }
 
     // Uniform locations
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -402,6 +463,8 @@ int main()
         player.moveBack = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
         player.moveLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         player.moveRight = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+        player.isSprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+        player.isCrouching = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
 
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
@@ -432,9 +495,42 @@ int main()
             g_leftClick = false;
             if (hit.hit)
             {
+                BlockType broken = world.GetBlock(hit.worldX, hit.worldY, hit.worldZ);
+
                 // Разрушаем блок — ставим AIR
                 world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
                 world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
+
+                // Кладём блок в инвентарь
+                if (broken != AIR)
+                {
+                    bool placed = false;
+
+                    // Ищем свободный слот в хотбаре
+                    for (int i = 0; i < Hotbar::SLOTS; i++)
+                    {
+                        if (hotbar.slots[i] == AIR)
+                        {
+                            hotbar.slots[i] = broken;
+                            placed = true;
+                            break;
+                        }
+                    }
+
+                    // Если хотбар полный — ищем свободный слот в инвентаре
+                    if (!placed)
+                    {
+                        for (int i = 0; i < Inventory::SIZE; i++)
+                        {
+                            if (inventory.slots[i].type == AIR)
+                            {
+                                inventory.slots[i] = { broken, 1 };
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -450,7 +546,11 @@ int main()
 
                 // Не ставим блок внутри игрока (упрощённая проверка)
                 glm::vec3 playerMin = player.position - glm::vec3(Player::WIDTH / 2.0f, 0.0f, Player::WIDTH / 2.0f);
-                glm::vec3 playerMax = player.position + glm::vec3(Player::WIDTH / 2.0f, Player::HEIGHT, Player::WIDTH / 2.0f);
+                glm::vec3 playerMax = player.position + glm::vec3(
+                    Player::WIDTH / 2.0f,
+                    player.isCrouching ? Player::CROUCH_HEIGHT : Player::HEIGHT,
+                    Player::WIDTH / 2.0f
+                );
                 bool insidePlayer =
                     (placeX     < playerMax.x && placeX + 1 > playerMin.x) &&
                     (placeY     < playerMax.y && placeY + 1 > playerMin.y) &&
@@ -502,7 +602,7 @@ int main()
         ImGui::End();
 
         // Цикл дня/ночи
-        g_timeOfDay += deltaTime * 0.01f; // 100 секунд = одни сутки
+        g_timeOfDay += deltaTime * 0.001f; // 100 секунд = одни сутки
         if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
 
         // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
@@ -607,10 +707,9 @@ int main()
         }
         lastVisibleChunks = visibleChunks;
 
+        glDepthMask(GL_FALSE);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);
-        glDisable(GL_CULL_FACE);
 
         glUniform1i(transparentPassLoc, 1); // включаем прозрачность
 
@@ -638,13 +737,22 @@ int main()
                     return distA > distB; // дальние первыми
                 });
 
+            // Проход 1 — только задние грани
+            glCullFace(GL_FRONT);
+            glEnable(GL_CULL_FACE);
+            for (Chunk* chunk : transparentChunks)
+                chunk->DrawTransparent();
+
+            // Проход 2 — только передние грани
+            glCullFace(GL_BACK);
             for (Chunk* chunk : transparentChunks)
                 chunk->DrawTransparent();
         }
 
         glDepthMask(GL_TRUE);
-        glEnable(GL_CULL_FACE);
         glDisable(GL_BLEND);
+        glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
         glUniform1i(transparentPassLoc, 0);
 
         // Крестик (2D поверх всего)
@@ -663,6 +771,12 @@ int main()
         glEnable(GL_CULL_FACE);
         glEnable(GL_DEPTH_TEST);
 
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        inventory.Draw(g_width, g_height, (float)g_mouseX, (float)g_mouseY);
+        glEnable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
+
         // ImGui рендер (поверх всего)
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -675,6 +789,8 @@ int main()
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+
+    SavePlayerPos(player.position);
 
     glfwTerminate();
     return 0;

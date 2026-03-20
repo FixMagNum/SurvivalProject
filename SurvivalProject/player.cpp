@@ -1,5 +1,4 @@
 #include "player.h"
-
 #include <cmath>
 
 Player::Player(glm::vec3 spawnPos)
@@ -7,6 +6,8 @@ Player::Player(glm::vec3 spawnPos)
     position = spawnPos;
     velocity = glm::vec3(0.0f);
     isGrounded = false;
+    isSprinting = false;
+    isCrouching = false;
 }
 
 bool Player::IsSolid(int x, int y, int z, World& world)
@@ -18,6 +19,10 @@ bool Player::IsSolid(int x, int y, int z, World& world)
 void Player::MoveAndCollide(glm::vec3 delta, World& world)
 {
     float half = WIDTH / 2.0f;
+
+    float currentHeight = isCrouching ? CROUCH_HEIGHT : HEIGHT;
+
+    int maxY = (int)floor(position.y + currentHeight - 0.001f);
 
     auto resolveAxis = [&](int axis, float d)
         {
@@ -31,7 +36,7 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
             int minX = (int)floor(position.x - half);
             int maxX = (int)floor(position.x + half - 0.001f);
             int minY = (int)floor(position.y);
-            int maxY = (int)floor(position.y + HEIGHT - 0.001f);
+            int maxY = (int)floor(position.y + currentHeight - 0.001f);
             int minZ = (int)floor(position.z - half);
             int maxZ = (int)floor(position.z + half - 0.001f);
 
@@ -50,7 +55,7 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
                         }
                         else if (axis == 1)
                         {
-                            if (d > 0) position.y = y - HEIGHT;
+                            if (d > 0) position.y = y - currentHeight;
                             else
                             {
                                 position.y = y + 1.0f;
@@ -69,7 +74,7 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
                         minX = (int)floor(position.x - half);
                         maxX = (int)floor(position.x + half - 0.001f);
                         minY = (int)floor(position.y);
-                        maxY = (int)floor(position.y + HEIGHT - 0.001f);
+                        maxY = (int)floor(position.y + currentHeight - 0.001f);
                         minZ = (int)floor(position.z - half);
                         maxZ = (int)floor(position.z + half - 0.001f);
                     }
@@ -110,6 +115,14 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     if (moveBack)    moveDir -= forward;
     if (moveLeft)    moveDir -= right;
     if (moveRight)   moveDir += right;
+    
+    // Скорость зависит от состояния
+    float speed = MOVE_SPEED;
+    if (isSprinting && !isCrouching) speed = SPRINT_SPEED;
+    if (isCrouching)                 speed = CROUCH_SPEED;
+
+    // Высота глаз зависит от приседания
+    float eyeHeight = isCrouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
 
     if (glm::length(moveDir) > 0.0f)
         moveDir = glm::normalize(moveDir);
@@ -126,12 +139,12 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     float gravityMult = inWater ? 0.15f : 1.0f;
 
     glm::vec3 delta;
-    delta.x = moveDir.x * MOVE_SPEED * speedMult * deltaTime;
-    delta.z = moveDir.z * MOVE_SPEED * speedMult * deltaTime;
+    delta.x = moveDir.x * speed * speedMult * deltaTime;
+    delta.z = moveDir.z * speed * speedMult * deltaTime;
     delta.y = velocity.y * gravityMult * deltaTime;
 
     MoveAndCollide(delta, world);
 
     // Камера следует за игроком — глаза на высоте EYE_HEIGHT
-    camera.Position = position + glm::vec3(0.0f, EYE_HEIGHT, 0.0f);
+    camera.Position = position + glm::vec3(0.0f, eyeHeight, 0.0f);
 }

@@ -9,7 +9,7 @@ public:
     glm::vec3 position; // нижняя точка AABB (ноги)
     glm::vec3 velocity;
 
-    static constexpr float WIDTH = 0.6f;    // как в Minecraft
+    static constexpr float WIDTH = 0.6f;        // как в Minecraft
     static constexpr float HEIGHT = 1.8f;
     static constexpr float EYE_HEIGHT = 1.62f;  // высота глаз от ног
 
@@ -17,7 +17,14 @@ public:
     static constexpr float JUMP_SPEED = 9.0f;
     static constexpr float MOVE_SPEED = 5.0f;
 
-    bool isGrounded = false;
+    static constexpr float SPRINT_SPEED = 10.0f;     // скорость бега
+    static constexpr float CROUCH_SPEED = 2.0f;      // скорость приседания
+    static constexpr float CROUCH_HEIGHT = 1.4f;     // высота при приседании
+    static constexpr float CROUCH_EYE_HEIGHT = 1.0f; // глаза при приседании
+
+    bool isGrounded  = false;
+    bool isSprinting = false;
+    bool isCrouching = false;
 
     Player(glm::vec3 spawnPos);
 

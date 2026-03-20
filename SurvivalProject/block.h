@@ -9,6 +9,10 @@ enum BlockType
 	OAK_PLANKS,
 	GLASS,
 	WATER,
+	OAK_LOG,
+	OAK_LEAVES,
+	SAND,
+	SNOW,
 };
 
 struct BlockData

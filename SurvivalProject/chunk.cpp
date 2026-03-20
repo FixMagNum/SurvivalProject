@@ -15,13 +15,17 @@ static int Tile(int x, int y)
 
 BlockData blockDatabase[] =
 {
-    { 0, 0, 0 },                            // AIR
-    { Tile(2,0), Tile(0,0), Tile(1,0) },    // GRASS
-    { Tile(0,0), Tile(0,0), Tile(0,0) },    // DIRT
-    { Tile(3,0), Tile(3,0), Tile(3,0) },    // STONE
-    { Tile(5,0), Tile(5,0), Tile(4,0) },    // OAK_PLANKS
-    { Tile(6,0), Tile(6,0), Tile(6,0) },    // GLASS
-    { Tile(7,0), Tile(7,0), Tile(7,0) },    // WATER
+    { 0, 0, 0 },                              // AIR
+    { Tile(2,0),  Tile(0,0),  Tile(1,0) },    // GRASS
+    { Tile(0,0),  Tile(0,0),  Tile(0,0) },    // DIRT
+    { Tile(3,0),  Tile(3,0),  Tile(3,0) },    // STONE
+    { Tile(5,0),  Tile(5,0),  Tile(4,0) },    // OAK_PLANKS
+    { Tile(6,0),  Tile(6,0),  Tile(6,0) },    // GLASS
+    { Tile(7,0),  Tile(7,0),  Tile(7,0) },    // WATER
+	{ Tile(9,0),  Tile(9,0),  Tile(8,0) },    // OAK_LOG
+    { Tile(10,0), Tile(10,0), Tile(10,0) },   // OAK_LEAVES
+    { Tile(11,0), Tile(11,0), Tile(11,0) },   // SAND
+	{ Tile(12,0), Tile(12,0), Tile(12,0) },   // SNOW
 };
 
 static const int SEA_LEVEL = 50;
@@ -53,6 +57,18 @@ void Chunk::Generate()
     noise.SetFrequency(0.005f);
     noise.SetSeed(1337);
 
+    // Шум для биомов — низкая частота чтобы биомы были большими
+    FastNoiseLite biomeNoise;
+    biomeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    biomeNoise.SetFrequency(0.002f);
+    biomeNoise.SetSeed(9999);
+
+    // Шум для деревьев
+    FastNoiseLite treeNoise;
+    treeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    treeNoise.SetFrequency(0.1f);
+    treeNoise.SetSeed(42);
+
     for (int x = 0; x < SIZE_X; x++)
     {
         for (int z = 0; z < SIZE_Z; z++)
@@ -60,27 +76,127 @@ void Chunk::Generate()
             float worldX = x + chunkPos.x * SIZE_X;
             float worldZ = z + chunkPos.y * SIZE_Z;
 
+            float biomeVal = biomeNoise.GetNoise(worldX, worldZ); // -1..1
             float noiseVal = noise.GetNoise(worldX, worldZ);
-            int surfaceY = (int)(60.0f + noiseVal * 60.0f);
+
+            // Определяем биом
+            // -1.0 .. -0.3 = пустыня
+            // -0.3 ..  0.3 = равнина
+            //  0.3 ..  0.6 = лес
+            //  0.6 ..  1.0 = горы
+            enum Biome { DESERT, PLAINS, FOREST, MOUNTAINS };
+            Biome biome;
+            if (biomeVal < -0.3f) biome = DESERT;
+            else if (biomeVal < 0.3f) biome = PLAINS;
+            else if (biomeVal < 0.6f) biome = FOREST;
+            else                       biome = MOUNTAINS;
+
+            // Высота рельефа зависит от биома
+            int surfaceY;
+            if (biome == DESERT)
+                surfaceY = (int)(48.0f + noiseVal * 8.0f);   // плоский
+            else if (biome == PLAINS)
+                surfaceY = (int)(60.0f + noiseVal * 20.0f);  // средний
+            else if (biome == FOREST)
+                surfaceY = (int)(60.0f + noiseVal * 25.0f);  // средний
+            else // MOUNTAINS
+                surfaceY = (int)(80.0f + noiseVal * 60.0f);  // высокий
+
             surfaceY = std::clamp(surfaceY, 1, SIZE_Y - 2);
 
+            // Заполняем блоки
             for (int y = 0; y < SIZE_Y; y++)
             {
                 if (y == 0)                blocks[x][y][z] = STONE;
                 else if (y < surfaceY - 3) blocks[x][y][z] = STONE;
-                else if (y < surfaceY)     blocks[x][y][z] = DIRT;
-                else if (y == surfaceY)    blocks[x][y][z] = GRASS;
-                else                       blocks[x][y][z] = AIR;
+                else if (y < surfaceY)
+                {
+                    if (biome == DESERT)        blocks[x][y][z] = SAND;
+                    else                         blocks[x][y][z] = DIRT;
+                }
+                else if (y == surfaceY)
+                {
+                    if (biome == DESERT)         blocks[x][y][z] = SAND;
+                    else if (biome == MOUNTAINS && surfaceY > 110) blocks[x][y][z] = SNOW;
+                    else                         blocks[x][y][z] = GRASS;
+                }
+                else blocks[x][y][z] = AIR;
             }
 
-            // Заполняем водой до уровня моря
+            // Вода
             for (int y = surfaceY + 1; y <= SEA_LEVEL; y++)
                 if (blocks[x][y][z] == AIR)
                     blocks[x][y][z] = WATER;
 
-            // Под водой трава -> грязь
-            if (surfaceY < SEA_LEVEL && blocks[x][surfaceY][z] == GRASS)
-                blocks[x][surfaceY][z] = DIRT;
+            // Под водой трава/песок -> грязь/песок
+            if (surfaceY < SEA_LEVEL)
+            {
+                if (blocks[x][surfaceY][z] == GRASS)
+                    blocks[x][surfaceY][z] = DIRT;
+            }
+        }
+    }
+
+    // Деревья
+    for (int x = 2; x < SIZE_X - 2; x++)
+    {
+        for (int z = 2; z < SIZE_Z - 2; z++)
+        {
+            float worldX = x + chunkPos.x * SIZE_X;
+            float worldZ = z + chunkPos.y * SIZE_Z;
+
+            float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
+
+            // Деревья только в лесу и на равнинах
+            if (biomeVal < -0.3f) continue; // пустыня — нет деревьев
+            if (biomeVal > 0.6f) continue; // горы — нет деревьев
+
+            int surfaceY = 0;
+            for (int y = SIZE_Y - 1; y >= 0; y--)
+                if (blocks[x][y][z] == GRASS) { surfaceY = y; break; }
+
+            if (surfaceY == 0) continue;
+            if (surfaceY <= SEA_LEVEL) continue;
+
+            float treeVal = treeNoise.GetNoise(worldX, worldZ);
+
+            // В лесу деревья чаще
+            float treeThreshold = (biomeVal > 0.3f) ? 0.3f : 0.6f;
+            if (treeVal < treeThreshold) continue;
+
+            int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
+            trunkHeight = std::clamp(trunkHeight, 4, 6);
+
+            // Ствол
+            for (int y = surfaceY + 1; y <= surfaceY + trunkHeight; y++)
+                blocks[x][y][z] = OAK_LOG;
+
+            // Листья
+            int leafBase = surfaceY + trunkHeight - 1;
+            for (int ly = leafBase; ly <= leafBase + 2; ly++)
+                for (int lx = -2; lx <= 2; lx++)
+                    for (int lz = -2; lz <= 2; lz++)
+                    {
+                        int bx = x + lx;
+                        int bz = z + lz;
+                        if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
+                        if (blocks[bx][ly][bz] == AIR)
+                            blocks[bx][ly][bz] = OAK_LEAVES;
+                    }
+
+            // Верхушка
+            for (int lx = -1; lx <= 1; lx++)
+                for (int lz = -1; lz <= 1; lz++)
+                {
+                    int bx = x + lx;
+                    int bz = z + lz;
+                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
+                    if (blocks[bx][leafBase + 3][bz] == AIR)
+                        blocks[bx][leafBase + 3][bz] = OAK_LEAVES;
+                }
+
+            if (blocks[x][leafBase + 4][z] == AIR)
+                blocks[x][leafBase + 4][z] = OAK_LEAVES;
         }
     }
 
@@ -219,7 +335,7 @@ void Chunk::GenerateMeshData()
         };
 
     auto isTransparent = [](BlockType b) -> bool {
-        return b == GLASS || b == WATER;
+        return b == GLASS || b == WATER || b == OAK_LEAVES;
         };
 
     auto solid = [&](int x, int y, int z) -> int {
