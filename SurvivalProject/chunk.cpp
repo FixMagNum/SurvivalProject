@@ -90,21 +90,28 @@ void Chunk::Generate()
             float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
             float noiseVal = noise.GetNoise(worldX, worldZ);
 
+            // Определяем биом
+            // -1.0 .. -0.3 = пустыня
+            // -0.3 ..  0.3 = равнина
+            //  0.3 ..  0.6 = лес
+            //  0.6 ..  1.0 = горы
             enum Biome { DESERT, PLAINS, FOREST, MOUNTAINS };
             Biome biome;
-            if (biomeVal < -0.3f)      biome = DESERT;
-            else if (biomeVal < 0.3f)  biome = PLAINS;
-            else if (biomeVal < 0.6f)  biome = FOREST;
+            if      (biomeVal < -0.3f)  biome = DESERT;
+            else if (biomeVal <  0.3f)  biome = PLAINS;
+            else if (biomeVal <  0.6f)  biome = FOREST;
             else                        biome = MOUNTAINS;
 
+            // Высота рельефа зависит от биома
             int surfaceY;
-            if (biome == DESERT)        surfaceY = (int)(108.0f + noiseVal * 8.0f);
-            else if (biome == PLAINS)   surfaceY = (int)(120.0f + noiseVal * 20.0f);
-            else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);
-            else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);
+            if      (biome == DESERT)   surfaceY = (int)(108.0f + noiseVal * 8.0f);   // плоский
+            else if (biome == PLAINS)   surfaceY = (int)(120.0f + noiseVal * 20.0f);  // средний
+            else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);  // средний
+            else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);  // высокий - MOUNTAINS
 
             surfaceY = std::clamp(surfaceY, 1, 500);
 
+            // Заполняем блоки
             for (int y = 0; y < SIZE_Y; y++)
             {
                 int worldY = worldChunkY + y; // мировая Y координата блока
@@ -180,6 +187,19 @@ void Chunk::Generate()
 
             int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
             trunkHeight = std::clamp(trunkHeight, 4, 6);
+
+            // Проверяем есть ли дерево рядом (радиус 3 блока)
+            bool treeNearby = false;
+            for (int dx = -3; dx <= 3 && !treeNearby; dx++)
+                for (int dz = -3; dz <= 3 && !treeNearby; dz++)
+                {
+                    int bx = x + dx;
+                    int bz = z + dz;
+                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
+                    if (blocks[bx][surfaceY + 1][bz] == OAK_LOG) treeNearby = true;
+                }
+
+            if (treeNearby) continue;
 
             // Ствол
             for (int t = 1; t <= trunkHeight; t++)

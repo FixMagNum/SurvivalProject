@@ -289,12 +289,12 @@ static bool AllNeighborsGenerated(
     const std::unordered_map<ChunkKey, std::unique_ptr<Chunk>, ChunkKeyHash>& chunkMap,
     int cx, int cy, int cz)
 {
-    const int ddx[] = { 1, -1, 0,  0,  0,  0 };
-    const int ddy[] = { 0,  0, 0,  0,  1, -1 };
-    const int ddz[] = { 0,  0, 1, -1,  0,  0 };
-    for (int i = 0; i < 6; i++)
+    // Горизонтальные соседи обязательны
+    const int ddx[] = { 1, -1, 0,  0 };
+    const int ddz[] = { 0,  0, 1, -1 };
+    for (int i = 0; i < 4; i++)
     {
-        auto it = chunkMap.find({ cx + ddx[i], cy + ddy[i], cz + ddz[i] });
+        auto it = chunkMap.find({ cx + ddx[i], cy, cz + ddz[i] });
         if (it == chunkMap.end()) return false;
         auto s = it->second->state.load();
         if (s == ChunkState::Empty || s == ChunkState::Generating) return false;
