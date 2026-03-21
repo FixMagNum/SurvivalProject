@@ -64,6 +64,8 @@ public:
     // playerChunkX/Z — позиция игрока в чанковых координатах
     void Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront);
 
+    void UnloadDistantChunks(int playerChunkX, int playerChunkZ);
+
     // Загружает на GPU чанки со статусом MeshReady (вызывать из main thread)
     // Возвращает количество загруженных чанков за этот кадр
     int  UploadPendingChunks(int maxPerFrame = 4);

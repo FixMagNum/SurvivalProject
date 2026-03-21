@@ -224,11 +224,13 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
 
     for (auto& p : pending)
     {
-        if (threadPool.QueueSize() > 64) break;
+        if (threadPool.QueueSize() > 32) break;
         ScheduleChunk(p.cx, p.cz);
     }
+}
 
-    // Выгружаем дальние чанки
+void World::UnloadDistantChunks(int playerChunkX, int playerChunkZ)
+{
     std::vector<ChunkKey> toRemove;
     {
         std::lock_guard<std::mutex> lock(chunkMapMutex);
@@ -238,15 +240,14 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
             int dz = key.z - playerChunkZ;
             if (dx * dx + dz * dz > UNLOAD_RADIUS * UNLOAD_RADIUS)
             {
-                // Не удаляем чанки которые ещё обрабатываются в потоке
                 auto s = chunk->state.load();
-                if (s == ChunkState::Uploaded || s == ChunkState::Empty)
+                // Не трогаем только то что прямо сейчас обрабатывается в потоке
+                if (s != ChunkState::Generating && s != ChunkState::MeshBuilding)
                     toRemove.push_back(key);
             }
         }
     }
 
-    // FreeGPU и удаление — только из главного потока (здесь мы в нём)
     for (auto& key : toRemove)
     {
         std::lock_guard<std::mutex> lock(chunkMapMutex);
@@ -254,9 +255,13 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
         if (it == chunkMap.end()) continue;
 
         Chunk* chunk = it->second.get();
-        SaveChunk(chunk); // сохраняем перед удалением
 
-        // Отвязываем у соседей
+        // Двойная проверка — вдруг поток успел сменить статус
+        auto s = chunk->state.load();
+        if (s == ChunkState::Generating || s == ChunkState::MeshBuilding) continue;
+
+        SaveChunk(chunk);
+
         if (chunk->neighborPX) chunk->neighborPX->neighborNX = nullptr;
         if (chunk->neighborNX) chunk->neighborNX->neighborPX = nullptr;
         if (chunk->neighborPZ) chunk->neighborPZ->neighborNZ = nullptr;

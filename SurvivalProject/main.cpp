@@ -568,6 +568,8 @@ int main()
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
 
+        static float respawnTime = -1.0f; // время респауна
+
         // Респаун после смерти
         if (player.isDead)
         {
@@ -588,6 +590,10 @@ int main()
             player.health = Player::MAX_HEALTH;
             player.isDead = false;
             camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
+
+            respawnTime = currentFrame; // запоминаем время
+            lastPlayerCX = INT_MIN;
+            lastPlayerCZ = INT_MIN;
         }
 
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
@@ -597,15 +603,21 @@ int main()
         int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
         int playerCZ = (int)floor(camera.Position.z / Chunk::SIZE_Z);
 
-        // Update вызываем только когда игрок сменил чанк (чтобы не спамить)
-        if (playerCX != lastPlayerCX || playerCZ != lastPlayerCZ) {
+        // Выгрузка каждый кадр
+        world.UnloadDistantChunks(playerCX, playerCZ);
+
+        bool forceUpdate = currentFrame < 5.0f;
+        bool respawnUpdate = (respawnTime >= 0.0f && currentFrame - respawnTime < 5.0f);
+
+        if (forceUpdate || respawnUpdate || playerCX != lastPlayerCX || playerCZ != lastPlayerCZ)
+        {
             world.Update(playerCX, playerCZ, camera.Front);
             lastPlayerCX = playerCX;
             lastPlayerCZ = playerCZ;
         }
 
-        // Загружаем на GPU не более 4 чанков за кадр (без фризов)
-        world.UploadPendingChunks(4);
+        // Загружаем на GPU не более 2 чанков за кадр (без фризов)
+        world.UploadPendingChunks(2);
 
         // Raycast + клики мыши
         // Дальность взаимодействия 6 блоков (как в Minecraft)
@@ -753,6 +765,7 @@ int main()
         ImGui::Text("Frametime: %6.2f ms", displayMS);
         ImGui::Separator();
         ImGui::Text("Chunks: %d", lastVisibleChunks);
+        ImGui::Text("Total chunks: %d", (int)world.chunkMap.size());
         ImGui::Text("Time: %.2f", g_timeOfDay);
         ImGui::End();
 
