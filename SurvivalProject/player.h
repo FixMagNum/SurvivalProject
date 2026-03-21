@@ -40,6 +40,15 @@ public:
     bool moveRight = false;
     bool inWater = false;
 
+    static constexpr float MAX_HEALTH = 20.0f;
+    static constexpr float FALL_DAMAGE_THRESHOLD = 4.0f; // с какой высоты начинается урон
+
+    float health = MAX_HEALTH;
+    bool  isDead = false;
+
+    // Для расчёта урона от падения
+    float maxFallSpeed = 0.0f; // максимальная скорость падения за этот прыжок
+
 private:
     // Двигаем по одной оси и сразу резолвим коллизии
     void MoveAndCollide(glm::vec3 delta, World& world);

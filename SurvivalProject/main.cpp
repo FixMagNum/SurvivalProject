@@ -451,12 +451,39 @@ int main()
     // Запускаем начальную генерацию через Update
     world.Update(0, 0, camera.Front);
 
+    // Ждём пока чанк спавна сгенерируется
+    while (true)
+    {
+        world.UploadPendingChunks(16);
+        std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+        auto it = world.chunkMap.find({ 0, 0 });
+        if (it != world.chunkMap.end() &&
+            it->second->state.load() == ChunkState::Uploaded) break;
+    }
+
+    // Находим поверхность в точке спавна
+    int spawnY = 150;
+    for (int y = Chunk::SIZE_Y - 1; y >= 0; y--)
+    {
+        BlockType b = world.GetBlock(0, y, 0);
+        if (b != AIR && b != WATER)
+        {
+            spawnY = y + 1;
+            break;
+        }
+    }
+
     // Загружаем позицию игрока если есть сохранение
     glm::vec3 savedPos;
     if (LoadPlayerPos(savedPos))
     {
         player.position = savedPos;
         camera.Position = savedPos + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
+    }
+    else
+    {
+        player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
+        camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
     }
 
     // Uniform locations
@@ -541,6 +568,28 @@ int main()
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
 
+        // Респаун после смерти
+        if (player.isDead)
+        {
+            // Находим поверхность в точке спавна
+            int spawnY = 150;
+            for (int y = Chunk::SIZE_Y - 1; y >= 0; y--)
+            {
+                BlockType b = world.GetBlock(0, y, 0);
+                if (b != AIR && b != WATER)
+                {
+                    spawnY = y + 1;
+                    break;
+                }
+            }
+
+            player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
+            player.velocity = glm::vec3(0.0f);
+            player.health = Player::MAX_HEALTH;
+            player.isDead = false;
+            camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
+        }
+
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
             player.Jump();
 
@@ -555,8 +604,8 @@ int main()
             lastPlayerCZ = playerCZ;
         }
 
-        // Загружаем на GPU не более 2 чанков за кадр (без фризов)
-        world.UploadPendingChunks(2);
+        // Загружаем на GPU не более 4 чанков за кадр (без фризов)
+        world.UploadPendingChunks(4);
 
         // Raycast + клики мыши
         // Дальность взаимодействия 6 блоков (как в Minecraft)
@@ -789,6 +838,42 @@ int main()
                 ImGui::PopStyleColor(2);
                 ImGui::PopStyleVar();
             }
+        }
+
+        // Полоска здоровья
+        ImGui::SetNextWindowPos(ImVec2(g_width / 2.0f - 100.0f, g_height - 90.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(200.0f, 20.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.8f, 0.1f, 0.1f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.25f));
+
+        ImGui::Begin("##health", nullptr,
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+        ImGui::ProgressBar(player.health / Player::MAX_HEALTH, ImVec2(200.0f, 15.0f));
+
+        ImGui::End();
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar();
+
+        if (player.health < Player::MAX_HEALTH * 0.3f)
+        {
+            float alpha = (1.0f - player.health / (Player::MAX_HEALTH * 0.3f)) * 0.3f;
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(g_width, g_height));
+            ImGui::SetNextWindowBgAlpha(alpha);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.8f, 0.0f, 0.0f, 1.0f));
+            ImGui::Begin("##damage", nullptr,
+                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoBringToFrontOnFocus);
+            ImGui::End();
+            ImGui::PopStyleColor();
         }
 
         // Цикл дня/ночи

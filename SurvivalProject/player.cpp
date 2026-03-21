@@ -181,6 +181,27 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         if (!solidUnderZ) delta.z = 0.0f;
     }
 
+    // Отслеживаем максимальную скорость падения
+    if (velocity.y < 0.0f)
+        maxFallSpeed = std::max(maxFallSpeed, -velocity.y);
+
+    // При приземлении считаем урон
+    if (isGrounded && maxFallSpeed > 0.0f)
+    {
+        // Урон начинается с падения больше ~4 блоков
+        float fallDamage = maxFallSpeed - FALL_DAMAGE_THRESHOLD * 4.0f;
+        if (fallDamage > 0.0f)
+            health -= fallDamage * 0.5f;
+        maxFallSpeed = 0.0f;
+    }
+
+    // Смерть
+    if (health <= 0.0f)
+    {
+        health = 0.0f;
+        isDead = true;
+    }
+
     MoveAndCollide(delta, world);
 
     // Камера следует за игроком — глаза на высоте EYE_HEIGHT

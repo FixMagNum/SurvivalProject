@@ -69,6 +69,17 @@ void Chunk::Generate()
     treeNoise.SetFrequency(0.1f);
     treeNoise.SetSeed(42);
 
+    // Пещеры — 3D шум
+    FastNoiseLite caveNoise;
+    caveNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    caveNoise.SetFrequency(0.04f);
+    caveNoise.SetSeed(2024);
+
+    FastNoiseLite caveNoise2;
+    caveNoise2.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    caveNoise2.SetFrequency(0.04f);
+    caveNoise2.SetSeed(9876);
+
     for (int x = 0; x < SIZE_X; x++)
     {
         for (int z = 0; z < SIZE_Z; z++)
@@ -136,6 +147,30 @@ void Chunk::Generate()
             }
         }
     }
+
+    // Сначала вычисляем поверхность для каждой колонки
+    int surfaceMap[SIZE_X][SIZE_Z] = {};
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+            for (int y = SIZE_Y - 1; y >= 0; y--)
+                if (blocks[x][y][z] != AIR) { surfaceMap[x][z] = y; break; }
+
+    // Пещеры
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+            for (int y = 1; y < surfaceMap[x][z] - 5; y++) // не ближе 5 блоков к поверхности
+            {
+                if (blocks[x][y][z] == AIR || blocks[x][y][z] == WATER) continue;
+
+                float worldX = x + chunkPos.x * SIZE_X;
+                float worldZ = z + chunkPos.y * SIZE_Z;
+
+                float n1 = caveNoise.GetNoise(worldX, (float)y, worldZ);
+                float n2 = caveNoise2.GetNoise(worldX, (float)y * 0.5f, worldZ);
+
+                if (n1 * n1 + n2 * n2 < 0.06f)
+                    blocks[x][y][z] = AIR;
+            }
 
     // Деревья
     for (int x = 2; x < SIZE_X - 2; x++)

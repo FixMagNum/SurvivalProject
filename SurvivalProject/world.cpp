@@ -224,7 +224,7 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
 
     for (auto& p : pending)
     {
-        if (threadPool.QueueSize() > 32) break;
+        if (threadPool.QueueSize() > 64) break;
         ScheduleChunk(p.cx, p.cz);
     }
 
