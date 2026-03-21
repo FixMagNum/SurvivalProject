@@ -63,7 +63,6 @@ void Chunk::Generate()
     biomeNoise.SetFrequency(0.002f);
     biomeNoise.SetSeed(9999);
 
-    // Шум для деревьев
     FastNoiseLite treeNoise;
     treeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
     treeNoise.SetFrequency(0.1f);
