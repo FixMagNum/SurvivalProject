@@ -287,13 +287,14 @@ void World::UnloadDistantChunks(int playerChunkX, int playerChunkY, int playerCh
 // Вызывать под chunkMapMutex.
 static bool AllNeighborsGenerated(
     const std::unordered_map<ChunkKey, std::unique_ptr<Chunk>, ChunkKeyHash>& chunkMap,
-    int cx, int cz)
+    int cx, int cy, int cz)
 {
-    const int ddx[] = { 1, -1, 0,  0 };
-    const int ddz[] = { 0,  0, 1, -1 };
-    for (int i = 0; i < 4; i++)
+    const int ddx[] = { 1, -1, 0,  0,  0,  0 };
+    const int ddy[] = { 0,  0, 0,  0,  1, -1 };
+    const int ddz[] = { 0,  0, 1, -1,  0,  0 };
+    for (int i = 0; i < 6; i++)
     {
-        auto it = chunkMap.find({ cx + ddx[i], cz + ddz[i] });
+        auto it = chunkMap.find({ cx + ddx[i], cy + ddy[i], cz + ddz[i] });
         if (it == chunkMap.end()) return false;
         auto s = it->second->state.load();
         if (s == ChunkState::Empty || s == ChunkState::Generating) return false;
@@ -325,7 +326,7 @@ int World::UploadPendingChunks(int maxPerFrame)
             }
 
             if (s == ChunkState::Generated &&
-                AllNeighborsGenerated(chunkMap, key.x, key.z))
+                AllNeighborsGenerated(chunkMap, key.x, key.y, key.z))
             {
                 toRebuild.push_back(chunk.get());
                 continue;
