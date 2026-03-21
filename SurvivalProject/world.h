@@ -60,10 +60,10 @@ public:
     
     // Радиус подгрузки в чанках
     static const int LOAD_RADIUS = 12;
-    // Чанки дальше UNLOAD_RADIUS удаляются (с запасом чтобы не мигали)
-    static const int UNLOAD_RADIUS = 14;
+    // Чанки дальше UNLOAD_RADIUS удаляются (ставьте с запасом, если чанки мигают)
+    static const int UNLOAD_RADIUS = 12;
     // Вертикальный радиус в чанках
-    static const int LOAD_RADIUS_Y = 8;
+    static const int LOAD_RADIUS_Y = 4;
 
     // Главный метод — вызывать каждый кадр из main
     // playerChunkX/Z — позиция игрока в чанковых координатах

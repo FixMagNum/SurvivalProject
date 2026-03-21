@@ -188,6 +188,11 @@ void Chunk::Generate()
             int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
             trunkHeight = std::clamp(trunkHeight, 4, 6);
 
+            // Временно: ограничиваем высоту дерева чтобы листья не вышли за границу чанка
+            int maxTrunk = SIZE_Y - localSurface - 6; // 6 блоков запас под листья
+            trunkHeight = std::min(trunkHeight, maxTrunk);
+            if (trunkHeight < 3) continue; // слишком мало места — не сажаем
+
             // Проверяем есть ли дерево рядом (радиус 3 блока)
             bool treeNearby = false;
             for (int dx = -3; dx <= 3 && !treeNearby; dx++)
@@ -196,7 +201,9 @@ void Chunk::Generate()
                     int bx = x + dx;
                     int bz = z + dz;
                     if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    if (blocks[bx][surfaceY + 1][bz] == OAK_LOG) treeNearby = true;
+                    int localCheck = surfaceY - worldChunkY + 1;
+                    if (localCheck >= 0 && localCheck < SIZE_Y)
+                        if (blocks[bx][localCheck][bz] == OAK_LOG) treeNearby = true;
                 }
 
             if (treeNearby) continue;

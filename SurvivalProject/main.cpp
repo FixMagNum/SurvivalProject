@@ -568,33 +568,51 @@ int main()
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
 
-        static float respawnTime = -1.0f; // время респауна
-
         // Респаун после смерти
+        static float respawnTime = -1.0f; // время респауна
+        static bool respawnPending = false;
+
         if (player.isDead)
         {
-            // Находим поверхность в точке спавна
-            int spawnY = 150;
-            for (int y = Chunk::SIZE_Y - 1; y >= 0; y--)
-            {
-                BlockType b = world.GetBlock(0, y, 0);
-                if (b != AIR && b != WATER)
-                {
-                    spawnY = y + 1;
-                    break;
-                }
-            }
-
-            player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
+            player.position = glm::vec3(0.0f, 150.0f, 0.0f);
             player.velocity = glm::vec3(0.0f);
             player.health = Player::MAX_HEALTH;
             player.isDead = false;
             camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
-
-            respawnTime = currentFrame; // запоминаем время
+            respawnTime = currentFrame;
+            respawnPending = true;
             lastPlayerCX = INT_MIN;
             lastPlayerCY = INT_MIN;
             lastPlayerCZ = INT_MIN;
+        }
+
+        if (respawnPending)
+        {
+            // Замораживаем игрока — гравитация не действует
+            player.velocity = glm::vec3(0.0f);
+
+            bool chunkReady = false;
+            {
+                std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+                auto it = world.chunkMap.find({ 0, 7, 0 });
+                chunkReady = (it != world.chunkMap.end() &&
+                    it->second->state.load() == ChunkState::Uploaded);
+            }
+
+            if (chunkReady)
+            {
+                respawnPending = false;
+                int spawnY = 150;
+                for (int y = 500; y >= 0; y--)
+                {
+                    BlockType b = world.GetBlock(0, y, 0);
+                    if (b != AIR && b != WATER) { spawnY = y + 1; break; }
+                }
+                player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
+                player.velocity = glm::vec3(0.0f);
+                player.maxFallSpeed = 0.0f; // сбрасываем урон от падения
+                camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
+            }
         }
 
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
@@ -619,8 +637,8 @@ int main()
             lastPlayerCZ = playerCZ;
         }
 
-        // Загружаем на GPU не более 2 чанков за кадр (без фризов)
-        world.UploadPendingChunks(2);
+        // Загружаем на GPU не более 4 чанков за кадр (без фризов)
+        world.UploadPendingChunks(4);
 
         // Raycast + клики мыши
         // Дальность взаимодействия 6 блоков (как в Minecraft)
