@@ -28,7 +28,7 @@ public:
 
 	// Размеры чанка
     static const int SIZE_X = 16;
-    static const int SIZE_Y = 512;
+    static const int SIZE_Y = 16;
     static const int SIZE_Z = 16;
 
     int minY = 0;
@@ -38,8 +38,10 @@ public:
     Chunk* neighborNX = nullptr;
     Chunk* neighborPZ = nullptr;
     Chunk* neighborNZ = nullptr;
+    Chunk* neighborPY = nullptr;
+    Chunk* neighborNY = nullptr;
 
-    glm::ivec2 chunkPos;  // позиция в чанковой сетке (x,z)
+    glm::ivec3 chunkPos; // x, y, z в чанковых координатах
 
     std::atomic<ChunkState> state{ ChunkState::Empty };
     std::atomic<bool> needsRebuild{ false }; // сосед достроился — перестроить наш меш
@@ -48,7 +50,7 @@ public:
 
     std::vector<uint32_t> indicesT;
 
-    Chunk(int chunkX, int chunkZ, World* worldPtr);
+    Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr);
     
     BlockType blocks[SIZE_X][SIZE_Y][SIZE_Z];
 

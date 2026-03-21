@@ -30,21 +30,19 @@ BlockData blockDatabase[] =
 
 static const int SEA_LEVEL = 110;
 
-Chunk::Chunk(int chunkX, int chunkZ, World* worldPtr)
+Chunk::Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr)
 {
-    chunkPos = { chunkX, chunkZ };
+    chunkPos = { chunkX, chunkY, chunkZ };
     world = worldPtr;
 
     float worldX = chunkPos.x * SIZE_X;
-    float worldZ = chunkPos.y * SIZE_Z;
+    float worldY = chunkPos.y * SIZE_Y;
+    float worldZ = chunkPos.z * SIZE_Z;
 
-    bounds.min = glm::vec3(worldX, 0, worldZ);
-    bounds.max = glm::vec3(worldX + SIZE_X, SIZE_Y, worldZ + SIZE_Z);
+    bounds.min = glm::vec3(worldX, worldY, worldZ);
+    bounds.max = glm::vec3(worldX + SIZE_X, worldY + SIZE_Y, worldZ + SIZE_Z);
 
-    for (int x = 0; x < SIZE_X; x++)
-        for (int y = 0; y < SIZE_Y; y++)
-            for (int z = 0; z < SIZE_Z; z++)
-                blocks[x][y][z] = AIR;
+    memset(blocks, 0, sizeof(blocks));
 
     VAO = 0; VBO = 0; EBO = 0;
     VAO_T = 0; VBO_T = 0; EBO_T = 0;
@@ -63,11 +61,6 @@ void Chunk::Generate()
     biomeNoise.SetFrequency(0.002f);
     biomeNoise.SetSeed(9999);
 
-    FastNoiseLite treeNoise;
-    treeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
-    treeNoise.SetFrequency(0.1f);
-    treeNoise.SetSeed(42);
-
     // Пещеры — 3D шум
     FastNoiseLite caveNoise;
     caveNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
@@ -79,155 +72,132 @@ void Chunk::Generate()
     caveNoise2.SetFrequency(0.04f);
     caveNoise2.SetSeed(9876);
 
+    // Шум для деревьев
+    FastNoiseLite treeNoise;
+    treeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    treeNoise.SetFrequency(0.1f);
+    treeNoise.SetSeed(42);
+
+    int worldChunkY = chunkPos.y * SIZE_Y; // нижняя граница чанка в мировых координатах
+
     for (int x = 0; x < SIZE_X; x++)
     {
         for (int z = 0; z < SIZE_Z; z++)
         {
             float worldX = x + chunkPos.x * SIZE_X;
-            float worldZ = z + chunkPos.y * SIZE_Z;
+            float worldZ = z + chunkPos.z * SIZE_Z;
 
-            float biomeVal = biomeNoise.GetNoise(worldX, worldZ); // -1..1
+            float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
             float noiseVal = noise.GetNoise(worldX, worldZ);
 
-            // Определяем биом
-            // -1.0 .. -0.3 = пустыня
-            // -0.3 ..  0.3 = равнина
-            //  0.3 ..  0.6 = лес
-            //  0.6 ..  1.0 = горы
             enum Biome { DESERT, PLAINS, FOREST, MOUNTAINS };
             Biome biome;
-            if (biomeVal < -0.3f) biome = DESERT;
-            else if (biomeVal < 0.3f) biome = PLAINS;
-            else if (biomeVal < 0.6f) biome = FOREST;
-            else                       biome = MOUNTAINS;
+            if (biomeVal < -0.3f)      biome = DESERT;
+            else if (biomeVal < 0.3f)  biome = PLAINS;
+            else if (biomeVal < 0.6f)  biome = FOREST;
+            else                        biome = MOUNTAINS;
 
-            // Высота рельефа зависит от биома
             int surfaceY;
-            if (biome == DESERT)
-                surfaceY = (int)(108.0f + noiseVal * 8.0f);   // плоский
-            else if (biome == PLAINS)
-                surfaceY = (int)(120.0f + noiseVal * 20.0f);  // средний
-            else if (biome == FOREST)
-                surfaceY = (int)(120.0f + noiseVal * 25.0f);  // средний
-            else // MOUNTAINS
-                surfaceY = (int)(140.0f + noiseVal * 60.0f);  // высокий
+            if (biome == DESERT)        surfaceY = (int)(108.0f + noiseVal * 8.0f);
+            else if (biome == PLAINS)   surfaceY = (int)(120.0f + noiseVal * 20.0f);
+            else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);
+            else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);
 
-            surfaceY = std::clamp(surfaceY, 1, SIZE_Y - 2);
+            surfaceY = std::clamp(surfaceY, 1, 500);
 
-            // Заполняем блоки
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (y == 0)                blocks[x][y][z] = STONE;
-                else if (y < surfaceY - 3) blocks[x][y][z] = STONE;
-                else if (y < surfaceY)
+                int worldY = worldChunkY + y; // мировая Y координата блока
+
+                BlockType block = AIR;
+
+                if (worldY == 0)
+                    block = STONE;
+                else if (worldY < surfaceY - 3)
                 {
-                    if (biome == DESERT)        blocks[x][y][z] = SAND;
-                    else                         blocks[x][y][z] = DIRT;
+                    block = STONE;
+
+                    // Пещеры
+                    float n1 = caveNoise.GetNoise(worldX, (float)worldY, worldZ);
+                    float n2 = caveNoise2.GetNoise(worldX, (float)worldY * 0.5f, worldZ);
+                    if (n1 * n1 + n2 * n2 < 0.06f)
+                        block = AIR;
                 }
-                else if (y == surfaceY)
+                else if (worldY < surfaceY)
                 {
-                    if (biome == DESERT)         blocks[x][y][z] = SAND;
-                    else if (biome == MOUNTAINS && surfaceY > 110) blocks[x][y][z] = SNOW;
-                    else                         blocks[x][y][z] = GRASS;
+                    if (biome == DESERT) block = SAND;
+                    else                 block = DIRT;
                 }
-                else blocks[x][y][z] = AIR;
+                else if (worldY == surfaceY)
+                {
+                    if (biome == DESERT)                              block = SAND;
+                    else if (biome == MOUNTAINS && surfaceY > 170)    block = SNOW;
+                    else                                              block = GRASS;
+                }
+                else if (worldY <= 110 && worldY > surfaceY) // SEA_LEVEL = 110
+                    block = WATER;
+
+                blocks[x][y][z] = block;
             }
 
-            // Вода
-            for (int y = surfaceY + 1; y <= SEA_LEVEL; y++)
-                if (blocks[x][y][z] == AIR)
-                    blocks[x][y][z] = WATER;
-
-            // Под водой трава/песок -> грязь/песок
-            if (surfaceY < SEA_LEVEL)
+            // Под водой трава -> грязь
+            for (int y = 0; y < SIZE_Y; y++)
             {
-                if (blocks[x][surfaceY][z] == GRASS)
-                    blocks[x][surfaceY][z] = DIRT;
+                int worldY = worldChunkY + y;
+                if (worldY == surfaceY && surfaceY < 110)
+                    if (blocks[x][y][z] == GRASS)
+                        blocks[x][y][z] = DIRT;
             }
         }
     }
 
-    // Сначала вычисляем поверхность для каждой колонки
-    int surfaceMap[SIZE_X][SIZE_Z] = {};
-    for (int x = 0; x < SIZE_X; x++)
-        for (int z = 0; z < SIZE_Z; z++)
-            for (int y = SIZE_Y - 1; y >= 0; y--)
-                if (blocks[x][y][z] != AIR) { surfaceMap[x][z] = y; break; }
-
-    // Пещеры
-    for (int x = 0; x < SIZE_X; x++)
-        for (int z = 0; z < SIZE_Z; z++)
-            for (int y = 1; y < surfaceMap[x][z] - 5; y++) // не ближе 5 блоков к поверхности
-            {
-                if (blocks[x][y][z] == AIR || blocks[x][y][z] == WATER) continue;
-
-                float worldX = x + chunkPos.x * SIZE_X;
-                float worldZ = z + chunkPos.y * SIZE_Z;
-
-                float n1 = caveNoise.GetNoise(worldX, (float)y, worldZ);
-                float n2 = caveNoise2.GetNoise(worldX, (float)y * 0.5f, worldZ);
-
-                if (n1 * n1 + n2 * n2 < 0.06f)
-                    blocks[x][y][z] = AIR;
-            }
-
-    // Деревья
+    // Деревья — только если чанк содержит поверхность
     for (int x = 2; x < SIZE_X - 2; x++)
     {
         for (int z = 2; z < SIZE_Z - 2; z++)
         {
             float worldX = x + chunkPos.x * SIZE_X;
-            float worldZ = z + chunkPos.y * SIZE_Z;
+            float worldZ = z + chunkPos.z * SIZE_Z;
 
             float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
+            if (biomeVal < -0.3f || biomeVal > 0.6f) continue;
 
-            // Деревья только в лесу и на равнинах
-            if (biomeVal < -0.3f) continue; // пустыня — нет деревьев
-            if (biomeVal > 0.6f) continue; // горы — нет деревьев
+            float noiseVal = noise.GetNoise(worldX, worldZ);
+            int surfaceY;
+            if (biomeVal < 0.3f) surfaceY = (int)(120.0f + noiseVal * 20.0f);
+            else                  surfaceY = (int)(120.0f + noiseVal * 25.0f);
+            surfaceY = std::clamp(surfaceY, 1, 500);
 
-            int surfaceY = 0;
-            for (int y = SIZE_Y - 1; y >= 0; y--)
-                if (blocks[x][y][z] == GRASS) { surfaceY = y; break; }
-
-            if (surfaceY == 0) continue;
-            if (surfaceY <= SEA_LEVEL) continue;
+            // Проверяем что поверхность находится в этом чанке
+            int localSurface = surfaceY - worldChunkY;
+            if (localSurface < 0 || localSurface >= SIZE_Y) continue;
+            if (blocks[x][localSurface][z] != GRASS) continue;
+            if (surfaceY <= 110) continue;
 
             float treeVal = treeNoise.GetNoise(worldX, worldZ);
-
-            // В лесу деревья чаще
             float treeThreshold = (biomeVal > 0.3f) ? 0.3f : 0.6f;
             if (treeVal < treeThreshold) continue;
 
             int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
             trunkHeight = std::clamp(trunkHeight, 4, 6);
 
-            // Проверяем есть ли дерево рядом (радиус 3 блока)
-            bool treeNearby = false;
-            for (int dx = -3; dx <= 3 && !treeNearby; dx++)
-                for (int dz = -3; dz <= 3 && !treeNearby; dz++)
-                {
-                    int bx = x + dx;
-                    int bz = z + dz;
-                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    if (blocks[bx][surfaceY + 1][bz] == OAK_LOG)
-                        treeNearby = true;
-                }
-
-            if (treeNearby) continue;
-
             // Ствол
-            for (int y = surfaceY + 1; y <= surfaceY + trunkHeight; y++)
-                blocks[x][y][z] = OAK_LOG;
+            for (int t = 1; t <= trunkHeight; t++)
+            {
+                int localY = localSurface + t;
+                if (localY >= SIZE_Y) break;
+                blocks[x][localY][z] = OAK_LOG;
+            }
 
             // Листья
-            int leafBase = surfaceY + trunkHeight - 1;
+            int leafBase = localSurface + trunkHeight - 1;
             for (int ly = leafBase; ly <= leafBase + 2; ly++)
                 for (int lx = -2; lx <= 2; lx++)
                     for (int lz = -2; lz <= 2; lz++)
                     {
-                        int bx = x + lx;
-                        int bz = z + lz;
+                        int bx = x + lx, bz = z + lz;
                         if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
+                        if (ly < 0 || ly >= SIZE_Y) continue;
                         if (blocks[bx][ly][bz] == AIR)
                             blocks[bx][ly][bz] = OAK_LEAVES;
                     }
@@ -236,33 +206,19 @@ void Chunk::Generate()
             for (int lx = -1; lx <= 1; lx++)
                 for (int lz = -1; lz <= 1; lz++)
                 {
-                    int bx = x + lx;
-                    int bz = z + lz;
+                    int bx = x + lx, bz = z + lz;
                     if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    if (blocks[bx][leafBase + 3][bz] == AIR)
-                        blocks[bx][leafBase + 3][bz] = OAK_LEAVES;
+                    int ly = leafBase + 3;
+                    if (ly >= SIZE_Y) continue;
+                    if (blocks[bx][ly][bz] == AIR)
+                        blocks[bx][ly][bz] = OAK_LEAVES;
                 }
 
-            if (blocks[x][leafBase + 4][z] == AIR)
-                blocks[x][leafBase + 4][z] = OAK_LEAVES;
+            int apex = leafBase + 4;
+            if (apex < SIZE_Y && blocks[x][apex][z] == AIR)
+                blocks[x][apex][z] = OAK_LEAVES;
         }
     }
-
-    minY = SIZE_Y; maxY = 0;
-    for (int x = 0; x < SIZE_X; x++)
-        for (int z = 0; z < SIZE_Z; z++)
-            for (int y = 0; y < SIZE_Y; y++)
-                if (blocks[x][y][z] != AIR) {
-                    minY = std::min(minY, y);
-                    maxY = std::max(maxY, y);
-                }
-}
-
-bool Chunk::IsBlockSolid(int x, int y, int z)
-{
-    int worldX = x + chunkPos.x * SIZE_X;
-    int worldZ = z + chunkPos.y * SIZE_Z;
-    return world->GetBlock(worldX, y, worldZ) != AIR;
 }
 
 int Chunk::ComputeAO(int side1, int side2, int corner)
@@ -284,7 +240,8 @@ void Chunk::AddQuad(
     auto& inds = transparent ? indicesT : indices;
 
     float worldOffsetX = chunkPos.x * SIZE_X;
-    float worldOffsetZ = chunkPos.y * SIZE_Z;
+    float worldOffsetY = chunkPos.y * SIZE_Y;
+    float worldOffsetZ = chunkPos.z * SIZE_Z;
 
     int tileX = tileID % ATLAS_SIZE;
     int tileY = tileID / ATLAS_SIZE;
@@ -298,7 +255,7 @@ void Chunk::AddQuad(
 
     auto push = [&](glm::vec3 p, float u, float v, float ao) {
         verts.push_back(p.x + worldOffsetX);
-        verts.push_back(p.y);
+        verts.push_back(p.y + worldOffsetY);
         verts.push_back(p.z + worldOffsetZ);
         verts.push_back(u);
         verts.push_back(v);
@@ -336,39 +293,47 @@ void Chunk::GenerateMeshData()
     verticesT.clear();
     indicesT.clear();
 
-    minY = SIZE_Y;
-    maxY = 0;
-    for (int x = 0; x < SIZE_X; x++)
-        for (int z = 0; z < SIZE_Z; z++)
-            for (int y = 0; y < SIZE_Y; y++)
-                if (blocks[x][y][z] != AIR) {
-                    minY = std::min(minY, y);
-                    maxY = std::max(maxY, y);
-                }
-    if (minY > maxY) return;
+    // Проверяем есть ли вообще непустые блоки
+    bool hasBlocks = false;
+    for (int x = 0; x < SIZE_X && !hasBlocks; x++)
+        for (int y = 0; y < SIZE_Y && !hasBlocks; y++)
+            for (int z = 0; z < SIZE_Z && !hasBlocks; z++)
+                if (blocks[x][y][z] != AIR) hasBlocks = true;
+
+    if (!hasBlocks) return;
 
     auto getBlock = [&](int x, int y, int z) -> BlockType {
-        if (y < 0 || y >= SIZE_Y) return AIR;
-        if (x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
+        if (x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
             return blocks[x][y][z];
+
         if (x < 0 && neighborNX) {
             int lx = x + SIZE_X;
-            if (lx >= 0 && lx < SIZE_X && z >= 0 && z < SIZE_Z)
+            if (lx >= 0 && lx < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
                 return neighborNX->blocks[lx][y][z];
         }
         if (x >= SIZE_X && neighborPX) {
             int lx = x - SIZE_X;
-            if (lx >= 0 && lx < SIZE_X && z >= 0 && z < SIZE_Z)
+            if (lx >= 0 && lx < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
                 return neighborPX->blocks[lx][y][z];
+        }
+        if (y < 0 && neighborNY) {
+            int ly = y + SIZE_Y;
+            if (ly >= 0 && ly < SIZE_Y && x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
+                return neighborNY->blocks[x][ly][z];
+        }
+        if (y >= SIZE_Y && neighborPY) {
+            int ly = y - SIZE_Y;
+            if (ly >= 0 && ly < SIZE_Y && x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
+                return neighborPY->blocks[x][ly][z];
         }
         if (z < 0 && neighborNZ) {
             int lz = z + SIZE_Z;
-            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X)
+            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y)
                 return neighborNZ->blocks[x][y][lz];
         }
         if (z >= SIZE_Z && neighborPZ) {
             int lz = z - SIZE_Z;
-            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X)
+            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y)
                 return neighborPZ->blocks[x][y][lz];
         }
         return AIR;
@@ -408,7 +373,7 @@ void Chunk::GenerateMeshData()
     };
 
     // +Y (top faces)
-    for (int y = minY; y <= maxY + 1; y++)
+    for (int y = 0; y <= SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
         bool     used[SIZE_X][SIZE_Z];
@@ -472,7 +437,7 @@ void Chunk::GenerateMeshData()
     }
 
     // -Y (bottom faces)
-    for (int y = minY; y <= maxY + 1; y++)
+    for (int y = 0; y <= SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
         bool     used[SIZE_X][SIZE_Z];
@@ -539,7 +504,7 @@ void Chunk::GenerateMeshData()
         memset(used, 0, sizeof(used));
 
         for (int z = 0; z < SIZE_Z; z++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[z][y];
                 BlockType cur = getBlock(x, y, z);
@@ -559,13 +524,13 @@ void Chunk::GenerateMeshData()
             }
 
         for (int z = 0; z < SIZE_Z; z++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 if (used[z][y] || mask[z][y].empty()) continue;
                 MaskCell& ref = mask[z][y];
 
                 int dy = 1;
-                while (y + dy <= maxY && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
 
                 int dz = 1;
                 while (z + dz < SIZE_Z) {
@@ -606,7 +571,7 @@ void Chunk::GenerateMeshData()
         memset(used, 0, sizeof(used));
 
         for (int z = 0; z < SIZE_Z; z++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[z][y];
                 BlockType cur = getBlock(x, y, z);
@@ -626,13 +591,13 @@ void Chunk::GenerateMeshData()
             }
 
         for (int z = 0; z < SIZE_Z; z++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 if (used[z][y] || mask[z][y].empty()) continue;
                 MaskCell& ref = mask[z][y];
 
                 int dy = 1;
-                while (y + dy <= maxY && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
 
                 int dz = 1;
                 while (z + dz < SIZE_Z) {
@@ -673,7 +638,7 @@ void Chunk::GenerateMeshData()
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[x][y];
                 BlockType cur = getBlock(x, y, z);
@@ -693,13 +658,13 @@ void Chunk::GenerateMeshData()
             }
 
         for (int x = 0; x < SIZE_X; x++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 if (used[x][y] || mask[x][y].empty()) continue;
                 MaskCell& ref = mask[x][y];
 
                 int dy = 1;
-                while (y + dy <= maxY && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {
@@ -740,7 +705,7 @@ void Chunk::GenerateMeshData()
         memset(used, 0, sizeof(used));
 
         for (int x = 0; x < SIZE_X; x++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[x][y];
                 BlockType cur = getBlock(x, y, z);
@@ -760,13 +725,13 @@ void Chunk::GenerateMeshData()
             }
 
         for (int x = 0; x < SIZE_X; x++)
-            for (int y = minY; y <= maxY; y++)
+            for (int y = 0; y < SIZE_Y; y++)
             {
                 if (used[x][y] || mask[x][y].empty()) continue;
                 MaskCell& ref = mask[x][y];
 
                 int dy = 1;
-                while (y + dy <= maxY && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {

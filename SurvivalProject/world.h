@@ -11,13 +11,16 @@
 #include "chunk.h"
 
 struct ChunkKey {
-    int x, z;
-    bool operator==(const ChunkKey& o) const { return x == o.x && z == o.z; }
+    int x, y, z;
+    bool operator==(const ChunkKey& o) const { return x == o.x && y == o.y && z == o.z; }
 };
 
 struct ChunkKeyHash {
     size_t operator()(const ChunkKey& k) const {
-        return std::hash<int>()(k.x) ^ (std::hash<int>()(k.z) << 16);
+        size_t h = std::hash<int>()(k.x);
+        h ^= std::hash<int>()(k.y) << 16;
+        h ^= std::hash<int>()(k.z) << 32;
+        return h;
     }
 };
 
@@ -59,12 +62,14 @@ public:
     static const int LOAD_RADIUS = 12;
     // Чанки дальше UNLOAD_RADIUS удаляются (с запасом чтобы не мигали)
     static const int UNLOAD_RADIUS = 14;
+    // Вертикальный радиус в чанках
+    static const int LOAD_RADIUS_Y = 8;
 
     // Главный метод — вызывать каждый кадр из main
     // playerChunkX/Z — позиция игрока в чанковых координатах
-    void Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront);
-
-    void UnloadDistantChunks(int playerChunkX, int playerChunkZ);
+    void Update(int playerChunkX, int playerChunkY, int playerChunkZ, glm::vec3 cameraFront);
+    
+    void UnloadDistantChunks(int playerChunkX, int playerChunkY, int playerChunkZ);
 
     // Загружает на GPU чанки со статусом MeshReady (вызывать из main thread)
     // Возвращает количество загруженных чанков за этот кадр
@@ -87,7 +92,7 @@ private:
     ThreadPool threadPool;
 
     // Запускает генерацию + построение меша для чанка в рабочем потоке
-    void ScheduleChunk(int cx, int cz);
+    void ScheduleChunk(int cx, int cy, int cz);
 
     // Заполняет ссылки на соседей для чанка (вызывать под chunkMapMutex)
     void LinkNeighbors(Chunk* chunk);

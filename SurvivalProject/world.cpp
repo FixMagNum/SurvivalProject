@@ -6,19 +6,16 @@
 #include <filesystem>
 #include <fstream>
 
-static std::string ChunkSavePath(int cx, int cz)
+static std::string ChunkSavePath(int cx, int cy, int cz)
 {
-    return "saves/chunk_" + std::to_string(cx) + "_" + std::to_string(cz) + ".bin";
+    return "saves/chunk_" + std::to_string(cx) + "_" + std::to_string(cy) + "_" + std::to_string(cz) + ".bin";
 }
 
 void World::SaveChunk(Chunk* chunk)
 {
     if (chunk->modifiedBlocks.empty()) return;
-
     std::filesystem::create_directories("saves");
-
-    std::ofstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y),
-        std::ios::binary);
+    std::ofstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y, chunk->chunkPos.z), std::ios::binary);
     if (!f) return;
 
     for (auto& [key, type] : chunk->modifiedBlocks)
@@ -35,8 +32,7 @@ void World::SaveChunk(Chunk* chunk)
 
 void World::LoadChunkDelta(Chunk* chunk)
 {
-    std::ifstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y),
-        std::ios::binary);
+    std::ifstream f(ChunkSavePath(chunk->chunkPos.x, chunk->chunkPos.y, chunk->chunkPos.z), std::ios::binary);
     if (!f) return; // файла нет — чанк нетронутый, всё ок
 
     int x, y, z;
@@ -109,16 +105,16 @@ World::~World()
         SaveChunk(chunk.get());
 }
 
-void World::ScheduleChunk(int cx, int cz)
+void World::ScheduleChunk(int cx, int cy, int cz)
 {
     Chunk* chunk = nullptr;
     {
         std::lock_guard<std::mutex> lock(chunkMapMutex);
 
-        ChunkKey key{ cx, cz };
+        ChunkKey key{ cx, cy, cz };
         if (chunkMap.count(key)) return;
 
-        auto uptr = std::make_unique<Chunk>(cx, cz, this);
+        auto uptr = std::make_unique<Chunk>(cx, cy, cz, this);
         chunk = uptr.get();
         chunkMap[key] = std::move(uptr);
     }
@@ -129,7 +125,7 @@ void World::ScheduleChunk(int cx, int cz)
 
     chunk->state.store(ChunkState::Generating);
 
-    threadPool.Enqueue([this, chunk, cx, cz] {
+    threadPool.Enqueue([this, chunk, cx, cy, cz] {
         chunk->Generate();
 
         // Накладываем уже загруженную дельту поверх сгенерированных блоков
@@ -154,6 +150,8 @@ void World::ScheduleChunk(int cx, int cz)
 
             markRebuild(chunk->neighborPX);
             markRebuild(chunk->neighborNX);
+            markRebuild(chunk->neighborPY);
+            markRebuild(chunk->neighborNY);
             markRebuild(chunk->neighborPZ);
             markRebuild(chunk->neighborNZ);
         }
@@ -163,28 +161,32 @@ void World::ScheduleChunk(int cx, int cz)
 void World::LinkNeighbors(Chunk* chunk)
 {
     int cx = chunk->chunkPos.x;
-    int cz = chunk->chunkPos.y;
+    int cy = chunk->chunkPos.y;
+    int cz = chunk->chunkPos.z;
 
-    auto find = [&](int x, int z) -> Chunk* {
-        auto it = chunkMap.find({ x, z });
+    auto find = [&](int x, int y, int z) -> Chunk* {
+        auto it = chunkMap.find({ x, y, z });
         return it != chunkMap.end() ? it->second.get() : nullptr;
         };
 
-    chunk->neighborPX = find(cx + 1, cz);
-    chunk->neighborNX = find(cx - 1, cz);
-    chunk->neighborPZ = find(cx, cz + 1);
-    chunk->neighborNZ = find(cx, cz - 1);
+    chunk->neighborPX = find(cx + 1, cy, cz);
+    chunk->neighborNX = find(cx - 1, cy, cz);
+    chunk->neighborPY = find(cx, cy + 1, cz);
+    chunk->neighborNY = find(cx, cy - 1, cz);
+    chunk->neighborPZ = find(cx, cy, cz + 1);
+    chunk->neighborNZ = find(cx, cy, cz - 1);
 
-    // Сообщаем соседям о новом чанке
     if (chunk->neighborPX) chunk->neighborPX->neighborNX = chunk;
     if (chunk->neighborNX) chunk->neighborNX->neighborPX = chunk;
+    if (chunk->neighborPY) chunk->neighborPY->neighborNY = chunk;
+    if (chunk->neighborNY) chunk->neighborNY->neighborPY = chunk;
     if (chunk->neighborPZ) chunk->neighborPZ->neighborNZ = chunk;
     if (chunk->neighborNZ) chunk->neighborNZ->neighborPZ = chunk;
 }
 
-void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
+void World::Update(int playerChunkX, int playerChunkY, int playerChunkZ, glm::vec3 cameraFront)
 {
-    struct PendingChunk { int cx, cz; float priority; };
+    struct PendingChunk { int cx, cy, cz; float priority; };
     std::vector<PendingChunk> pending;
 
     for (int dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++)
@@ -193,28 +195,34 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
             int dist2 = dx * dx + dz * dz;
             if (dist2 > LOAD_RADIUS * LOAD_RADIUS) continue;
 
-            int cx = playerChunkX + dx;
-            int cz = playerChunkZ + dz;
-
+            for (int dy = -LOAD_RADIUS_Y; dy <= LOAD_RADIUS_Y; dy++)
             {
-                std::lock_guard<std::mutex> lock(chunkMapMutex);
-                if (chunkMap.count({ cx, cz })) continue;
+                int cx = playerChunkX + dx;
+                int cy = playerChunkY + dy;
+                int cz = playerChunkZ + dz;
+
+                // Не грузим чанки ниже 0
+                if (cy < 0) continue;
+
+                {
+                    std::lock_guard<std::mutex> lock(chunkMapMutex);
+                    if (chunkMap.count({ cx, cy, cz })) continue;
+                }
+
+                // Нормализуем вектор к чанку
+                float len = sqrt((float)(dx * dx + dz * dz));
+                float ndx = (len > 0) ? dx / len : 0.0f;
+                float ndz = (len > 0) ? dz / len : 0.0f;
+                // dot: 1.0 = прямо перед игроком, -1.0 = за спиной
+                float dot = ndx * cameraFront.x + ndz * cameraFront.z;
+
+                // Меньше priority = раньше загрузится
+                // Чанки перед игроком получают бонус до -BIAS
+                constexpr float BIAS = 8.0f;
+                float priority = (float)(dist2 + dy * dy) - dot * BIAS;
+
+                pending.push_back({ cx, cy, cz, priority });
             }
-
-            // Нормализуем вектор к чанку
-            float len = sqrt((float)(dx * dx + dz * dz));
-            float ndx = (len > 0) ? dx / len : 0.0f;
-            float ndz = (len > 0) ? dz / len : 0.0f;
-
-            // dot: 1.0 = прямо перед игроком, -1.0 = за спиной
-            float dot = ndx * cameraFront.x + ndz * cameraFront.z;
-
-            // Меньше priority = раньше загрузится
-            // Чанки перед игроком получают бонус до -BIAS
-            constexpr float BIAS = 8.0f;
-            float priority = (float)dist2 - dot * BIAS;
-
-            pending.push_back({ cx, cz, priority });
         }
 
     std::sort(pending.begin(), pending.end(),
@@ -224,12 +232,12 @@ void World::Update(int playerChunkX, int playerChunkZ, glm::vec3 cameraFront)
 
     for (auto& p : pending)
     {
-        if (threadPool.QueueSize() > 32) break;
-        ScheduleChunk(p.cx, p.cz);
+        if (threadPool.QueueSize() > 64) break;
+        ScheduleChunk(p.cx, p.cy, p.cz);
     }
 }
 
-void World::UnloadDistantChunks(int playerChunkX, int playerChunkZ)
+void World::UnloadDistantChunks(int playerChunkX, int playerChunkY, int playerChunkZ)
 {
     std::vector<ChunkKey> toRemove;
     {
@@ -237,8 +245,10 @@ void World::UnloadDistantChunks(int playerChunkX, int playerChunkZ)
         for (auto& [key, chunk] : chunkMap)
         {
             int dx = key.x - playerChunkX;
+            int dy = key.y - playerChunkY;
             int dz = key.z - playerChunkZ;
-            if (dx * dx + dz * dz > UNLOAD_RADIUS * UNLOAD_RADIUS)
+            if (dx * dx + dz * dz > UNLOAD_RADIUS * UNLOAD_RADIUS ||
+                abs(dy) > LOAD_RADIUS_Y + 2)
             {
                 auto s = chunk->state.load();
                 // Не трогаем только то что прямо сейчас обрабатывается в потоке
@@ -255,7 +265,6 @@ void World::UnloadDistantChunks(int playerChunkX, int playerChunkZ)
         if (it == chunkMap.end()) continue;
 
         Chunk* chunk = it->second.get();
-
         // Двойная проверка — вдруг поток успел сменить статус
         auto s = chunk->state.load();
         if (s == ChunkState::Generating || s == ChunkState::MeshBuilding) continue;
@@ -264,6 +273,8 @@ void World::UnloadDistantChunks(int playerChunkX, int playerChunkZ)
 
         if (chunk->neighborPX) chunk->neighborPX->neighborNX = nullptr;
         if (chunk->neighborNX) chunk->neighborNX->neighborPX = nullptr;
+        if (chunk->neighborPY) chunk->neighborPY->neighborNY = nullptr;
+        if (chunk->neighborNY) chunk->neighborNY->neighborPY = nullptr;
         if (chunk->neighborPZ) chunk->neighborPZ->neighborNZ = nullptr;
         if (chunk->neighborNZ) chunk->neighborNZ->neighborPZ = nullptr;
 
@@ -352,40 +363,42 @@ int World::UploadPendingChunks(int maxPerFrame)
     return uploaded;
 }
 
-// GetBlock / SetBlock / Raycast / RebuildChunkAt
 BlockType World::GetBlock(int worldX, int worldY, int worldZ)
 {
-    if (worldY < 0 || worldY >= Chunk::SIZE_Y) return AIR;
+    if (worldY < 0) return STONE;
+    if (worldY >= 512) return AIR;
 
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);
+    int chunkY = (int)floor((float)worldY / Chunk::SIZE_Y);
     int chunkZ = (int)floor((float)worldZ / Chunk::SIZE_Z);
 
     std::lock_guard<std::mutex> lock(chunkMapMutex);
-    auto it = chunkMap.find({ chunkX, chunkZ });
+    auto it = chunkMap.find({ chunkX, chunkY, chunkZ });
     if (it == chunkMap.end()) return AIR;
 
     int localX = worldX - chunkX * Chunk::SIZE_X;
+    int localY = worldY - chunkY * Chunk::SIZE_Y;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
-    return it->second->blocks[localX][worldY][localZ];
+    return it->second->blocks[localX][localY][localZ];
 }
 
 void World::SetBlock(int worldX, int worldY, int worldZ, BlockType type)
 {
-    if (worldY < 0 || worldY >= Chunk::SIZE_Y) return;
+    if (worldY < 0 || worldY >= 512) return;
 
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);
+    int chunkY = (int)floor((float)worldY / Chunk::SIZE_Y);
     int chunkZ = (int)floor((float)worldZ / Chunk::SIZE_Z);
 
     std::lock_guard<std::mutex> lock(chunkMapMutex);
-    auto it = chunkMap.find({ chunkX, chunkZ });
+    auto it = chunkMap.find({ chunkX, chunkY, chunkZ });
     if (it == chunkMap.end()) return;
 
     int localX = worldX - chunkX * Chunk::SIZE_X;
+    int localY = worldY - chunkY * Chunk::SIZE_Y;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
-    it->second->blocks[localX][worldY][localZ] = type;
-
-    // Запоминаем изменение
-    it->second->modifiedBlocks[{localX, worldY, localZ}] = type;
+    it->second->blocks[localX][localY][localZ] = type;
+    it->second->modifiedBlocks[{localX, localY, localZ}] = type;
 }
 
 // DDA (Digital Differential Analyzer) raycast по блокам
@@ -473,30 +486,32 @@ RaycastResult World::Raycast(glm::vec3 origin, glm::vec3 dir, float maxDistance)
 void World::RebuildChunkAt(int worldX, int worldY, int worldZ)
 {
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);
+    int chunkY = (int)floor((float)worldY / Chunk::SIZE_Y);
     int chunkZ = (int)floor((float)worldZ / Chunk::SIZE_Z);
 
     // Перестраиваем основной чанк
-    auto rebuild = [&](int cx, int cz) {
+    auto rebuild = [&](int cx, int cy, int cz) {
         // BuildMesh уже thread-safe читает данные, но GPU — только main thread
         // Здесь мы всегда в main thread (вызывается из обработки клика)
         std::lock_guard<std::mutex> lock(chunkMapMutex);
-        auto it = chunkMap.find({ cx, cz });
+        auto it = chunkMap.find({ cx, cy, cz });
         if (it != chunkMap.end() &&
             it->second->state.load() == ChunkState::Uploaded)
-        {
             it->second->BuildMesh();
-        }
         };
 
-    rebuild(chunkX, chunkZ);
+    rebuild(chunkX, chunkY, chunkZ);
 
     // Локальная позиция внутри чанка
     int localX = worldX - chunkX * Chunk::SIZE_X;
+    int localY = worldY - chunkY * Chunk::SIZE_Y;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
 
     // Если на границе — перестраиваем соседа
-    if (localX == 0)                 rebuild(chunkX - 1, chunkZ);
-    if (localX == Chunk::SIZE_X - 1) rebuild(chunkX + 1, chunkZ);
-    if (localZ == 0)                 rebuild(chunkX, chunkZ - 1);
-    if (localZ == Chunk::SIZE_Z - 1) rebuild(chunkX, chunkZ + 1);
+    if (localX == 0)                 rebuild(chunkX - 1, chunkY, chunkZ);
+    if (localX == Chunk::SIZE_X - 1) rebuild(chunkX + 1, chunkY, chunkZ);
+    if (localY == 0)                 rebuild(chunkX, chunkY - 1, chunkZ);
+    if (localY == Chunk::SIZE_Y - 1) rebuild(chunkX, chunkY + 1, chunkZ);
+    if (localZ == 0)                 rebuild(chunkX, chunkY, chunkZ - 1);
+    if (localZ == Chunk::SIZE_Z - 1) rebuild(chunkX, chunkY, chunkZ + 1);
 }

@@ -449,21 +449,21 @@ int main()
     Frustum frustum;
 
     // Запускаем начальную генерацию через Update
-    world.Update(0, 0, camera.Front);
+    world.Update(0, 7, 0, camera.Front); // Y=7 примерно соответствует высоте 120 (120/16=7.5)
 
     // Ждём пока чанк спавна сгенерируется
     while (true)
     {
         world.UploadPendingChunks(16);
         std::lock_guard<std::mutex> lock(world.chunkMapMutex);
-        auto it = world.chunkMap.find({ 0, 0 });
+        auto it = world.chunkMap.find({ 0, 7, 0 }); // Y=7 соответствует высоте ~112-128
         if (it != world.chunkMap.end() &&
             it->second->state.load() == ChunkState::Uploaded) break;
     }
 
     // Находим поверхность в точке спавна
     int spawnY = 150;
-    for (int y = Chunk::SIZE_Y - 1; y >= 0; y--)
+    for (int y = 500; y >= 0; y--)
     {
         BlockType b = world.GetBlock(0, y, 0);
         if (b != AIR && b != WATER)
@@ -509,7 +509,7 @@ int main()
     float deltaTime = 0.0f, lastFrame = 0.0f;
 
     // Текущий чанк игрока (для обнаружения смены)
-    int lastPlayerCX = INT_MIN, lastPlayerCZ = INT_MIN;
+    int lastPlayerCX = INT_MIN, lastPlayerCZ = INT_MIN, lastPlayerCY = INT_MIN;
 
     // Game loop
     while (!glfwWindowShouldClose(window))
@@ -593,6 +593,7 @@ int main()
 
             respawnTime = currentFrame; // запоминаем время
             lastPlayerCX = INT_MIN;
+            lastPlayerCY = INT_MIN;
             lastPlayerCZ = INT_MIN;
         }
 
@@ -601,18 +602,20 @@ int main()
 
         // Динамическая подгрузка
         int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
+        int playerCY = (int)floor(camera.Position.y / Chunk::SIZE_Y);
         int playerCZ = (int)floor(camera.Position.z / Chunk::SIZE_Z);
 
         // Выгрузка каждый кадр
-        world.UnloadDistantChunks(playerCX, playerCZ);
+        world.UnloadDistantChunks(playerCX, playerCY, playerCZ);
 
         bool forceUpdate = currentFrame < 5.0f;
         bool respawnUpdate = (respawnTime >= 0.0f && currentFrame - respawnTime < 5.0f);
 
-        if (forceUpdate || respawnUpdate || playerCX != lastPlayerCX || playerCZ != lastPlayerCZ)
+        if (forceUpdate || respawnUpdate || playerCX != lastPlayerCX || playerCY != lastPlayerCY || playerCZ != lastPlayerCZ)
         {
-            world.Update(playerCX, playerCZ, camera.Front);
+            world.Update(playerCX, playerCY, playerCZ, camera.Front);
             lastPlayerCX = playerCX;
+            lastPlayerCY = playerCY;
             lastPlayerCZ = playerCZ;
         }
 
