@@ -48,6 +48,9 @@ public:
     
     std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
 
+    std::vector<float>    vertices;
+    std::vector<float>    verticesT;
+    std::vector<uint32_t> indices;
     std::vector<uint32_t> indicesT;
 
     Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr);
@@ -73,8 +76,6 @@ public:
     void FreeGPU();
 
 private:
-    bool IsBlockSolid(int x, int y, int z);
-
     // Добавляет прямоугольный quad (w x h блоков) с нужным тайлом
     void AddQuad(
         glm::vec3 origin,
@@ -92,12 +93,4 @@ private:
 
     // Отдельный VAO/VBO/EBO для прозрачных блоков
     unsigned int VAO_T, VBO_T, EBO_T;
-
-    // CPU-буферы меша (заполняются в GenerateMeshData)
-    // AO хранится прямо в вершинах — добавляем 1 float к формату
-    // Новый stride: pos(3) + uv(2) + tileOffset(2) + ao(1) + normal(3) = 11 floats
-    std::vector<float> vertices;
-    std::vector<uint32_t> indices;
-
-    std::vector<float>    verticesT;
 };

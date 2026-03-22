@@ -344,6 +344,11 @@ int World::UploadPendingChunks(int maxPerFrame)
         ptr->state.store(ChunkState::MeshBuilding);
         threadPool.Enqueue([ptr] {
             ptr->GenerateMeshData();
+            // если оба вектора пустые — сразу Uploaded, без GPU upload
+            if (ptr->vertices.empty() && ptr->verticesT.empty()) {
+                ptr->state.store(ChunkState::Uploaded);
+                return;
+            }
             ptr->state.store(ChunkState::MeshReady);
             });
     }

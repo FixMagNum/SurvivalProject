@@ -1008,7 +1008,7 @@ int main()
             for (auto& [key, chunk] : world.chunkMap)
             {
                 if (chunk->state.load() != ChunkState::Uploaded) continue;
-                if (frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) {
+                if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) {
                     chunk->Draw();
                     visibleChunks++;
                 }
