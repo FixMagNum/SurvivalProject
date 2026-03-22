@@ -1045,8 +1045,8 @@ int main()
             for (auto& [key, chunk] : world.chunkMap)
             {
                 if (chunk->state.load() != ChunkState::Uploaded) continue;
-                chunk->CheckFence();
-                if (!chunk->gpuReady) continue;
+                chunk->CheckFence(); // проверяем без блокировки
+                if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
                 if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
                 {
                     // Матрица трансляции для этого чанка

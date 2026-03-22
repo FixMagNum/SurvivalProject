@@ -819,7 +819,7 @@ void Chunk::UploadToGPU(bool isRebuild)
 
     if (isRebuild)
     {
-        // GPU не рисует этот чанк в данный момент, fence не нужен
+        // Rebuild вызывается из главного потока синхронно — GPU не рисует этот чанк в данный момент, fence не нужен
         if (uploadFence) { glDeleteSync(uploadFence); uploadFence = nullptr; }
         gpuReady = true;
     }
