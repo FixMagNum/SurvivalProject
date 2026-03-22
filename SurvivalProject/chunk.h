@@ -21,6 +21,12 @@ enum class ChunkState {
     Uploaded,     // полностью готов к рендеру
 };
 
+// Упакованная вершина — 8 байт вместо 44
+struct PackedVertex {
+    uint32_t data0; // X[31:24] Y[23:16] Z[15:8] faceId[7:5] ao[4:3] corner[2:1]
+    uint32_t data1; // tileId[7:0] sizeU[15:8] sizeV[23:16]
+};
+
 class Chunk
 {
 public:
@@ -49,10 +55,10 @@ public:
     
     std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
 
-    std::vector<float>    vertices;
-    std::vector<float>    verticesT;
-    std::vector<uint32_t> indices;
-    std::vector<uint32_t> indicesT;
+    std::vector<PackedVertex> vertices;
+    std::vector<PackedVertex> verticesT;
+    std::vector<uint32_t>     indices;
+    std::vector<uint32_t>     indicesT;
 
     Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr);
     
@@ -86,10 +92,10 @@ private:
     void AddQuad(
         glm::vec3 origin,
         glm::vec3 axis1, int w,
-        glm::vec3 axis2, float h,  // было int, стало float
+        glm::vec3 axis2, int h,
         int tileID, bool flipWinding,
         float ao0, float ao1, float ao2, float ao3,
-        glm::vec3 normal,
+        int faceId,
         bool transparent = false);
 
     // Считает AO для одной вершины (0..3, где 3 = светло)

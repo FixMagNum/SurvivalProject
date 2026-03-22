@@ -24,30 +24,67 @@
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
 #version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoord;
-layout (location = 2) in vec2 aTileOffset;
-layout (location = 3) in float aAO;
-layout (location = 4) in vec3 aNormal;
+layout (location = 0) in uvec2 aData; // data0, data1
 
-out vec2 TexCoord;
-out vec2 TileOffset;
+out vec2  TexCoord;
+out vec2  TileOffset;
 out float AO;
-out vec3 Normal;
-out vec3 FragPos;
+out vec3  Normal;
+out vec3  FragPos;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
+const vec3 normals[6] = vec3[6](
+    vec3( 0, 1, 0),
+    vec3( 0,-1, 0),
+    vec3( 1, 0, 0),
+    vec3(-1, 0, 0),
+    vec3( 0, 0, 1),
+    vec3( 0, 0,-1)
+);
+
+// UV углы quad: corner 0..3
+const vec2 corners[4] = vec2[4](
+    vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)
+);
+
+const float TILE_SIZE = 1.0 / 16.0;
+
 void main()
 {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-    FragPos = (model * vec4(aPos, 1.0)).xyz;
-    TexCoord = aTexCoord;
-    TileOffset = aTileOffset;
-    AO = aAO;
-    Normal = aNormal;
+    uint d0 = aData.x;
+    uint d1 = aData.y;
+
+    float px = float((d0 >> 24) & 0xFFu);
+    float py = float((d0 >> 16) & 0xFFu);
+    float pz = float((d0 >>  8) & 0xFFu);
+
+    uint faceId = (d0 >> 5) & 7u;
+    uint ao     = (d0 >> 3) & 3u;
+    uint corner = (d0 >> 1) & 3u;
+    uint tileId = d1 & 0xFFu;
+    uint sizeU  = (d1 >> 8)  & 0xFFu;
+    uint sizeV  = (d1 >> 16) & 0xFFu;
+
+    // corners дают (0,0)..(1,1) — умножаем на реальный размер quad
+    const vec2 corners[4] = vec2[4](
+        vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)
+    );
+
+    vec3 pos = vec3(px, py, pz);
+
+    gl_Position = projection * view * model * vec4(pos, 1.0);
+    FragPos     = (model * vec4(pos, 1.0)).xyz;
+
+    Normal    = normals[faceId];
+    AO        = float(ao) / 3.0;
+    TexCoord = corners[corner] * vec2(float(sizeU), float(sizeV));
+
+    uint tileX = tileId % 16u;
+    uint tileY = tileId / 16u;
+    TileOffset = vec2(float(tileX), float(tileY)) * TILE_SIZE;
 }
 )";
 
@@ -1008,9 +1045,14 @@ int main()
             for (auto& [key, chunk] : world.chunkMap)
             {
                 if (chunk->state.load() != ChunkState::Uploaded) continue;
-                chunk->CheckFence();  // проверяем без блокировки
-                if (!chunk->gpuReady) continue;  // пропускаем если GPU ещё не готов
-                if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) {
+                chunk->CheckFence();
+                if (!chunk->gpuReady) continue;
+                if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
+                {
+                    // Матрица трансляции для этого чанка
+                    glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
+                    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
+
                     chunk->Draw();
                     visibleChunks++;
                 }
@@ -1051,13 +1093,19 @@ int main()
             // Проход 1 — только задние грани
             glCullFace(GL_FRONT);
             glEnable(GL_CULL_FACE);
-            for (Chunk* chunk : transparentChunks)
+            for (Chunk* chunk : transparentChunks) {
+                glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
                 chunk->DrawTransparent();
+            }
 
             // Проход 2 — только передние грани
             glCullFace(GL_BACK);
-            for (Chunk* chunk : transparentChunks)
+            for (Chunk* chunk : transparentChunks) {
+                glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
                 chunk->DrawTransparent();
+            }
         }
 
         glDepthMask(GL_TRUE);

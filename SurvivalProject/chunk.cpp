@@ -257,49 +257,51 @@ int Chunk::ComputeAO(int side1, int side2, int corner)
 void Chunk::AddQuad(
     glm::vec3 origin,
     glm::vec3 axis1, int w,
-    glm::vec3 axis2, float h,
+    glm::vec3 axis2, int h,
     int tileID, bool flipWinding,
     float ao0, float ao1, float ao2, float ao3,
-    glm::vec3 normal,
+    int faceId,
     bool transparent)
 {
     auto& verts = transparent ? verticesT : vertices;
     auto& inds = transparent ? indicesT : indices;
 
-    float worldOffsetX = chunkPos.x * SIZE_X;
-    float worldOffsetY = chunkPos.y * SIZE_Y;
-    float worldOffsetZ = chunkPos.z * SIZE_Z;
+    glm::vec3 p[4] = {
+        origin,
+        origin + axis1 * (float)w,
+        origin + axis1 * (float)w + axis2 * (float)h,
+        origin + axis2 * (float)h,
+    };
 
-    int tileX = tileID % ATLAS_SIZE;
-    int tileY = tileID / ATLAS_SIZE;
-    float u0 = tileX * TILE_SIZE;
-    float v0 = tileY * TILE_SIZE;
-
-    glm::vec3 p0 = origin;
-    glm::vec3 p1 = origin + axis1 * (float)w;
-    glm::vec3 p2 = origin + axis1 * (float)w + axis2 * (float)h;
-    glm::vec3 p3 = origin + axis2 * (float)h;
-
-    auto push = [&](glm::vec3 p, float u, float v, float ao) {
-        verts.push_back(p.x + worldOffsetX);
-        verts.push_back(p.y + worldOffsetY);
-        verts.push_back(p.z + worldOffsetZ);
-        verts.push_back(u);
-        verts.push_back(v);
-        verts.push_back(u0);
-        verts.push_back(v0);
-        verts.push_back(ao);
-        verts.push_back(normal.x);
-        verts.push_back(normal.y);
-        verts.push_back(normal.z);
+    // ao приходит как float 0..1, конвертируем обратно в 0..3
+    auto packAO = [](float ao) -> uint32_t {
+        return (uint32_t)roundf(ao * 3.0f) & 3;
         };
 
-    uint32_t base = (uint32_t)(verts.size() / 11);
+    float aoArr[4] = { ao0, ao1, ao2, ao3 };
 
-    push(p0, 0, 0, ao0);
-    push(p1, (float)w, 0, ao1);
-    push(p2, (float)w, (float)h, ao2);
-    push(p3, 0, (float)h, ao3);
+    auto push = [&](int corner) {
+        glm::vec3 pos = p[corner];
+        uint8_t x = (uint8_t)roundf(pos.x);
+        uint8_t y = (uint8_t)roundf(pos.y);
+        uint8_t z = (uint8_t)roundf(pos.z);
+
+        uint32_t d0 = ((uint32_t)x << 24)
+            | ((uint32_t)y << 16)
+            | ((uint32_t)z << 8)
+            | ((uint32_t)(faceId & 7) << 5)
+            | (packAO(aoArr[corner]) << 3)
+            | ((uint32_t)(corner & 3) << 1);
+
+        uint32_t d1 = (uint32_t)(uint8_t)tileID
+            | ((uint32_t)(uint8_t)w << 8)
+            | ((uint32_t)(uint8_t)h << 16);
+
+        verts.push_back({ d0, d1 });
+        };
+
+    uint32_t base = (uint32_t)verts.size();
+    push(0); push(1); push(2); push(3);
 
     if (!flipWinding)
     {
@@ -459,7 +461,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 1, 0), trans);
+                    0, trans);
             }
     }
 
@@ -519,7 +521,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, -1, 0), trans);
+                    1, trans);
             }
     }
 
@@ -574,14 +576,14 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
-                float quadH = (float)dy;
+                int quadH = dy;
 
                 AddQuad(glm::vec3(x + 1, y, z),
                     glm::vec3(0, 0, 1), dz,
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(1, 0, 0), trans);
+                    2, trans);
             }
     }
 
@@ -636,14 +638,14 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
-                float quadH = (float)dy;
+                int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(0, 0, 1), dz,
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(-1, 0, 0), trans);
+                    3, trans);
             }
     }
 
@@ -698,14 +700,14 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
-                float quadH = (float)dy;
+                int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z + 1),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 0, 1), trans);
+                    4, trans);
             }
     }
 
@@ -760,20 +762,22 @@ void Chunk::GenerateMeshData()
 
                 BlockType cur = getBlock(x, y, z);
                 bool trans = isTransparent(cur);
-                float quadH = (float)dy;
+                int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    glm::vec3(0, 0, -1), trans);
+                    5, trans);
             }
     }
 }
 
 void Chunk::UploadToGPU(bool isRebuild)
 {
+    constexpr int STRIDE = sizeof(PackedVertex);
+
     // Непрозрачный меш
     if (VAO == 0)
     {
@@ -784,21 +788,12 @@ void Chunk::UploadToGPU(bool isRebuild)
 
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(PackedVertex), vertices.data(), GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_DYNAMIC_DRAW);
 
-    constexpr int STRIDE = 11 * sizeof(float);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
+    glVertexAttribIPointer(0, 2, GL_UNSIGNED_INT, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(8 * sizeof(float)));
-    glEnableVertexAttribArray(4);
     glBindVertexArray(0);
 
     // Прозрачный меш
@@ -813,20 +808,12 @@ void Chunk::UploadToGPU(bool isRebuild)
 
         glBindVertexArray(VAO_T);
         glBindBuffer(GL_ARRAY_BUFFER, VBO_T);
-        glBufferData(GL_ARRAY_BUFFER, verticesT.size() * sizeof(float), verticesT.data(), GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, verticesT.size() * sizeof(PackedVertex), verticesT.data(), GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_T);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicesT.size() * sizeof(uint32_t), indicesT.data(), GL_DYNAMIC_DRAW);
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
+        glVertexAttribIPointer(0, 2, GL_UNSIGNED_INT, STRIDE, (void*)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, STRIDE, (void*)(7 * sizeof(float)));
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(8 * sizeof(float)));
-        glEnableVertexAttribArray(4);
         glBindVertexArray(0);
     }
 
