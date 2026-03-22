@@ -1,4 +1,5 @@
 #pragma once
+#include <glad/glad.h>
 #include <vector>
 #include <atomic>
 #include <glm/glm.hpp>
@@ -63,7 +64,7 @@ public:
     void GenerateMeshData();
 
     // Загружает данные на GPU (ТОЛЬКО из главного потока!)
-    void UploadToGPU();
+    void UploadToGPU(bool isRebuild = false);
 
     // Для rebuild после break/place — тоже только из главного потока
     void BuildMesh();
@@ -72,8 +73,13 @@ public:
 
     void DrawTransparent();
 
+    void CheckFence();
+
     // Освобождает GPU ресурсы (вызывать из главного потока)
     void FreeGPU();
+
+    GLsync uploadFence = nullptr;  // fence после последнего UploadToGPU
+    bool   gpuReady = false;       // true когда fence сигналил
 
 private:
     // Добавляет прямоугольный quad (w x h блоков) с нужным тайлом

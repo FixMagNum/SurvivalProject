@@ -792,7 +792,7 @@ void Chunk::GenerateMeshData()
     }
 }
 
-void Chunk::UploadToGPU()
+void Chunk::UploadToGPU(bool isRebuild)
 {
     // Непрозрачный меш
     if (VAO == 0)
@@ -850,17 +850,34 @@ void Chunk::UploadToGPU()
         glBindVertexArray(0);
     }
 
+    if (isRebuild)
+    {
+        // Rebuild вызывается из главного потока синхронно —
+        // GPU не рисует этот чанк в данный момент, fence не нужен
+        if (uploadFence) { glDeleteSync(uploadFence); uploadFence = nullptr; }
+        gpuReady = true;
+    }
+    else
+    {
+        // Первичная загрузка при стриминге — ставим fence
+        if (uploadFence) glDeleteSync(uploadFence);
+        uploadFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gpuReady = false;
+    }
+
     state.store(ChunkState::Uploaded);
 }
 
 void Chunk::BuildMesh()
 {
     GenerateMeshData();
-    UploadToGPU();
+    UploadToGPU(true);  // rebuild — без fence
 }
 
 void Chunk::FreeGPU()
 {
+    if (uploadFence) { glDeleteSync(uploadFence); uploadFence = nullptr; }
+    gpuReady = false;
     if (VAO) { glDeleteVertexArrays(1, &VAO);   VAO = 0; }
     if (VBO) { glDeleteBuffers(1, &VBO);         VBO = 0; }
     if (EBO) { glDeleteBuffers(1, &EBO);         EBO = 0; }
@@ -886,4 +903,17 @@ void Chunk::DrawTransparent()
     if (VAO_T == 0 || indicesT.empty()) return;
     glBindVertexArray(VAO_T);
     glDrawElements(GL_TRIANGLES, (GLsizei)indicesT.size(), GL_UNSIGNED_INT, 0);
+}
+
+void Chunk::CheckFence()
+{
+    if (gpuReady || !uploadFence) return;
+
+    GLenum result = glClientWaitSync(uploadFence, 0, 0); // таймаут 0 — не блокируем
+    if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
+    {
+        glDeleteSync(uploadFence);
+        uploadFence = nullptr;
+        gpuReady = true;
+    }
 }
