@@ -87,6 +87,40 @@ public:
     GLsync uploadFence = nullptr;  // fence после последнего UploadToGPU
     bool   gpuReady = false;       // true когда fence сигналил
 
+    // В public секцию chunk.h
+    uint16_t visibilityMask = 0xFFFF; // все пути открыты по умолчанию
+
+    void ComputeVisibility();
+
+    // Вспомогательный enum для индексов граней — уже совпадает с faceId в шейдере
+    enum Face { PY = 0, NY = 1, PX = 2, NX = 3, PZ = 4, NZ = 5 };
+
+    // Получить бит для пары граней (a, b)
+    static int FacePairBit(int a, int b)
+    {
+        if (a > b) std::swap(a, b);
+        // Индекс пары: 0=(0,1), 1=(0,2), 2=(0,3), 3=(0,4), 4=(0,5),
+        //              5=(1,2), 6=(1,3), 7=(1,4), 8=(1,5),
+        //              9=(2,3), 10=(2,4), 11=(2,5),
+        //              12=(3,4), 13=(3,5), 14=(4,5)
+        static const int table[6][6] = {
+            {-1, 0, 1, 2, 3, 4},
+            { 0,-1, 5, 6, 7, 8},
+            { 1, 5,-1, 9,10,11},
+            { 2, 6, 9,-1,12,13},
+            { 3, 7,10,12,-1,14},
+            { 4, 8,11,13,14,-1},
+        };
+        return table[a][b];
+    }
+
+    static bool CanPassThrough(uint16_t mask, int enterFace, int exitFace)
+    {
+        if (enterFace == exitFace) return false;
+        int bit = FacePairBit(enterFace, exitFace);
+        return (mask >> bit) & 1;
+    }
+
 private:
     // Добавляет прямоугольный quad (w x h блоков) с нужным тайлом
     void AddQuad(

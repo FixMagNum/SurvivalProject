@@ -48,6 +48,103 @@ Chunk::Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr)
     VAO_T = 0; VBO_T = 0; EBO_T = 0;
 }
 
+static bool IsTransparent(BlockType b) {
+    return b == GLASS || b == WATER || b == OAK_LEAVES;
+}
+
+void Chunk::ComputeVisibility()
+{
+    // Быстрые пути — без BFS
+    bool hasAnyBlock = false;
+    for (int x = 0; x < SIZE_X && !hasAnyBlock; x++)
+        for (int y = 0; y < SIZE_Y && !hasAnyBlock; y++)
+            for (int z = 0; z < SIZE_Z && !hasAnyBlock; z++)
+                if (blocks[x][y][z] != AIR) hasAnyBlock = true;
+
+    if (!hasAnyBlock) { visibilityMask = 0xFFFF; return; } // пустой — всё видно
+
+    // BFS: для каждой из 6 граней флудфилл по воздуху
+    // visited — битмаска граней достигнутых из данного старта
+    uint8_t reachable[6] = {}; // reachable[face] = битмаска достижимых граней
+
+    // Направления соседей
+    const int dx[] = { 0, 0, 1,-1, 0, 0 };
+    const int dy[] = { 1,-1, 0, 0, 0, 0 };
+    const int dz[] = { 0, 0, 0, 0, 1,-1 };
+
+    // Для каждой стартовой грани
+    for (int startFace = 0; startFace < 6; startFace++)
+    {
+        bool visited[SIZE_X][SIZE_Y][SIZE_Z] = {};
+
+        // Очередь BFS
+        struct Cell { uint8_t x, y, z; };
+        std::vector<Cell> queue;
+        queue.reserve(SIZE_X * SIZE_Y * SIZE_Z / 4);
+
+        // Засеваем стартовые блоки с нужной грани
+        auto seedFace = [&](int face) {
+            for (int u = 0; u < 16; u++)
+                for (int v = 0; v < 16; v++)
+                {
+                    int x, y, z;
+                    switch (face) {
+                    case 0: x = u; y = 15; z = v; break; // +Y
+                    case 1: x = u; y = 0;  z = v; break; // -Y
+                    case 2: x = 15; y = u;  z = v; break; // +X
+                    case 3: x = 0; y = u;  z = v; break; // -X
+                    case 4: x = u; y = v;  z = 15; break; // +Z
+                    case 5: x = u; y = v;  z = 0; break; // -Z
+                    default: x = y = z = 0;
+                    }
+                    if (blocks[x][y][z] == AIR && !visited[x][y][z])
+                    {
+                        visited[x][y][z] = true;
+                        queue.push_back({ (uint8_t)x,(uint8_t)y,(uint8_t)z });
+                    }
+                }
+            };
+
+        seedFace(startFace);
+        reachable[startFace] |= (1 << startFace);
+
+        // BFS
+        for (int i = 0; i < (int)queue.size(); i++)
+        {
+            auto [cx, cy, cz] = queue[i];
+
+            // Проверяем на каких гранях находится этот блок
+            if (cy == 15) reachable[startFace] |= (1 << 0); // +Y
+            if (cy == 0) reachable[startFace] |= (1 << 1); // -Y
+            if (cx == 15) reachable[startFace] |= (1 << 2); // +X
+            if (cx == 0) reachable[startFace] |= (1 << 3); // -X
+            if (cz == 15) reachable[startFace] |= (1 << 4); // +Z
+            if (cz == 0) reachable[startFace] |= (1 << 5); // -Z
+
+            for (int d = 0; d < 6; d++)
+            {
+                int nx = cx + dx[d];
+                int ny = cy + dy[d];
+                int nz = cz + dz[d];
+                if (nx < 0 || nx >= SIZE_X ||
+                    ny < 0 || ny >= SIZE_Y ||
+                    nz < 0 || nz >= SIZE_Z) continue;
+                if (visited[nx][ny][nz]) continue;
+                if (blocks[nx][ny][nz] != AIR) continue;
+                visited[nx][ny][nz] = true;
+                queue.push_back({ (uint8_t)nx,(uint8_t)ny,(uint8_t)nz });
+            }
+        }
+    }
+
+    // Строим маску из результатов BFS
+    visibilityMask = 0;
+    for (int a = 0; a < 6; a++)
+        for (int b = a + 1; b < 6; b++)
+            if ((reachable[a] >> b) & 1)
+                visibilityMask |= (1 << FacePairBit(a, b));
+}
+
 void Chunk::Generate()
 {
     FastNoiseLite noise;
@@ -246,6 +343,8 @@ void Chunk::Generate()
                 blocks[x][apex][z] = OAK_LEAVES;
         }
     }
+
+    ComputeVisibility();
 }
 
 int Chunk::ComputeAO(int side1, int side2, int corner)
@@ -837,6 +936,7 @@ void Chunk::UploadToGPU(bool isRebuild)
 void Chunk::BuildMesh()
 {
     GenerateMeshData();
+    ComputeVisibility(); // пересчитываем после изменения блоков
     UploadToGPU(true);  // rebuild — без fence
 }
 

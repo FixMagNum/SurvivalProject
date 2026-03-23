@@ -20,6 +20,8 @@
 #include "imgui_impl_opengl3.h"
 #include "hotbar.h"
 #include "inventory.h"
+#include <unordered_set>
+#include <queue>
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -1039,22 +1041,78 @@ int main()
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
 
+        // Определяем противоположную грань
+        auto oppositeFace = [](int face) -> int {
+            // 0↔1 (Y), 2↔3 (X), 4↔5 (Z)
+            return face ^ 1;
+            };
+
+        // Грань входа при движении в направлении face
+        // Если мы движемся в +X (face=2), входим через -X (face=3)
+        auto enterFace = [&](int face) -> int {
+            return oppositeFace(face);
+            };
+
         int visibleChunks = 0;
         {
             std::lock_guard<std::mutex> lock(world.chunkMapMutex);
-            for (auto& [key, chunk] : world.chunkMap)
+
+            // BFS от чанка камеры
+            struct QueueEntry {
+                int cx, cy, cz;
+                int fromFace; // грань через которую вошли (-1 для стартового чанка)
+            };
+
+            std::unordered_set<ChunkKey, ChunkKeyHash> visited;
+            std::queue<QueueEntry> bfsQueue;
+
+            bfsQueue.push({ playerCX, playerCY, playerCZ, -1 });
+            visited.insert({ playerCX, playerCY, playerCZ });
+
+            const int nbDx[] = { 0, 0, 1,-1, 0, 0 };
+            const int nbDy[] = { 1,-1, 0, 0, 0, 0 };
+            const int nbDz[] = { 0, 0, 0, 0, 1,-1 };
+
+            while (!bfsQueue.empty())
             {
+                auto [cx, cy, cz, fromFace] = bfsQueue.front();
+                bfsQueue.pop();
+
+                auto it = world.chunkMap.find({ cx, cy, cz });
+                if (it == world.chunkMap.end()) continue;
+
+                Chunk* chunk = it->second.get();
                 if (chunk->state.load() != ChunkState::Uploaded) continue;
-                chunk->CheckFence(); // проверяем без блокировки
-                if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
-                if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
+                chunk->CheckFence();
+                if (!chunk->gpuReady) continue;
+                if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
+
+                // Рисуем если есть непрозрачный меш
+                if (!chunk->indices.empty())
                 {
-                    // Матрица трансляции для этого чанка
                     glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
                     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
-
                     chunk->Draw();
                     visibleChunks++;
+                }
+
+                // Идём в соседей
+                for (int face = 0; face < 6; face++)
+                {
+                    // Проверяем можно ли выйти через эту грань
+                    // fromFace == -1 для стартового чанка — разрешаем все направления
+                    if (fromFace != -1 && !Chunk::CanPassThrough(chunk->visibilityMask, fromFace, face))
+                        continue;
+
+                    int nx = cx + nbDx[face];
+                    int ny = cy + nbDy[face];
+                    int nz = cz + nbDz[face];
+
+                    ChunkKey nk{ nx, ny, nz };
+                    if (visited.count(nk)) continue;
+                    visited.insert(nk);
+
+                    bfsQueue.push({ nx, ny, nz, enterFace(face) });
                 }
             }
         }
