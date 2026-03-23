@@ -88,9 +88,11 @@ public:
     bool   gpuReady = false;       // true когда fence сигналил
 
     // В public секцию chunk.h
-    uint16_t visibilityMask = 0xFFFF; // все пути открыты по умолчанию
+    uint16_t visibilityMask = 0x7FFF; // 15 пар граней открыты по умолчанию
+    uint8_t  openFacesMask = 0x3F;     // все 6 граней открыты по умолчанию
 
     void ComputeVisibility();
+    uint8_t ComputeReachableFacesFromCell(int startX, int startY, int startZ) const;
 
     // Вспомогательный enum для индексов граней — уже совпадает с faceId в шейдере
     enum Face { PY = 0, NY = 1, PX = 2, NX = 3, PZ = 4, NZ = 5 };

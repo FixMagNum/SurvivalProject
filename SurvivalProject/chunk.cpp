@@ -52,92 +52,169 @@ static bool IsTransparent(BlockType b) {
     return b == GLASS || b == WATER || b == OAK_LEAVES;
 }
 
-void Chunk::ComputeVisibility()
+static bool IsOcclusionPassable(BlockType b)
 {
-    // Быстрые пути — без BFS
-    bool hasAnyBlock = false;
-    for (int x = 0; x < SIZE_X && !hasAnyBlock; x++)
-        for (int y = 0; y < SIZE_Y && !hasAnyBlock; y++)
-            for (int z = 0; z < SIZE_Z && !hasAnyBlock; z++)
-                if (blocks[x][y][z] != AIR) hasAnyBlock = true;
+    return b == AIR || b == GLASS;
+}
 
-    if (!hasAnyBlock) { visibilityMask = 0xFFFF; return; } // пустой — всё видно
+uint8_t Chunk::ComputeReachableFacesFromCell(int startX, int startY, int startZ) const
+{
+    if (startX < 0 || startX >= SIZE_X ||
+        startY < 0 || startY >= SIZE_Y ||
+        startZ < 0 || startZ >= SIZE_Z)
+        return 0;
 
-    // BFS: для каждой из 6 граней флудфилл по воздуху
-    // visited — битмаска граней достигнутых из данного старта
-    uint8_t reachable[6] = {}; // reachable[face] = битмаска достижимых граней
+    if (!IsOcclusionPassable(blocks[startX][startY][startZ]))
+        return 0;
 
-    // Направления соседей
+    bool visited[SIZE_X][SIZE_Y][SIZE_Z] = {};
+    struct Cell { uint8_t x, y, z; };
+    std::vector<Cell> queue;
+    queue.reserve(SIZE_X * SIZE_Y * SIZE_Z / 4);
+    queue.push_back({ (uint8_t)startX, (uint8_t)startY, (uint8_t)startZ });
+    visited[startX][startY][startZ] = true;
+
     const int dx[] = { 0, 0, 1,-1, 0, 0 };
     const int dy[] = { 1,-1, 0, 0, 0, 0 };
     const int dz[] = { 0, 0, 0, 0, 1,-1 };
 
-    // Для каждой стартовой грани
+    uint8_t reachableFaces = 0;
+    for (int i = 0; i < (int)queue.size(); i++)
+    {
+        auto [cx, cy, cz] = queue[i];
+
+        if (cy == SIZE_Y - 1) reachableFaces |= (1 << PY);
+        if (cy == 0)          reachableFaces |= (1 << NY);
+        if (cx == SIZE_X - 1) reachableFaces |= (1 << PX);
+        if (cx == 0)          reachableFaces |= (1 << NX);
+        if (cz == SIZE_Z - 1) reachableFaces |= (1 << PZ);
+        if (cz == 0)          reachableFaces |= (1 << NZ);
+
+        for (int d = 0; d < 6; d++)
+        {
+            int nx = cx + dx[d];
+            int ny = cy + dy[d];
+            int nz = cz + dz[d];
+            if (nx < 0 || nx >= SIZE_X || ny < 0 || ny >= SIZE_Y || nz < 0 || nz >= SIZE_Z)
+                continue;
+            if (visited[nx][ny][nz])
+                continue;
+            if (!IsOcclusionPassable(blocks[nx][ny][nz]))
+                continue;
+            visited[nx][ny][nz] = true;
+            queue.push_back({ (uint8_t)nx, (uint8_t)ny, (uint8_t)nz });
+        }
+    }
+
+    return reachableFaces;
+}
+
+void Chunk::ComputeVisibility()
+{
+    bool hasAnyOccluder = false;
+    openFacesMask = 0;
+
+    auto markFaceOpen = [&](int x, int y, int z) {
+        if (!IsOcclusionPassable(blocks[x][y][z]))
+        {
+            hasAnyOccluder = true;
+            return;
+        }
+        if (y == SIZE_Y - 1) openFacesMask |= (1 << PY);
+        if (y == 0)          openFacesMask |= (1 << NY);
+        if (x == SIZE_X - 1) openFacesMask |= (1 << PX);
+        if (x == 0)          openFacesMask |= (1 << NX);
+        if (z == SIZE_Z - 1) openFacesMask |= (1 << PZ);
+        if (z == 0)          openFacesMask |= (1 << NZ);
+    };
+
+    for (int x = 0; x < SIZE_X; x++)
+        for (int y = 0; y < SIZE_Y; y++)
+            for (int z = 0; z < SIZE_Z; z++)
+            {
+                if (!IsOcclusionPassable(blocks[x][y][z]))
+                    hasAnyOccluder = true;
+                if (x == 0 || x == SIZE_X - 1 || y == 0 || y == SIZE_Y - 1 || z == 0 || z == SIZE_Z - 1)
+                    markFaceOpen(x, y, z);
+            }
+
+    if (!hasAnyOccluder)
+    {
+        visibilityMask = 0x7FFF;
+        openFacesMask = 0x3F;
+        return;
+    }
+
+    uint8_t reachable[6] = {};
+
     for (int startFace = 0; startFace < 6; startFace++)
     {
-        bool visited[SIZE_X][SIZE_Y][SIZE_Z] = {};
+        if (((openFacesMask >> startFace) & 1) == 0)
+            continue;
 
-        // Очередь BFS
+        bool visited[SIZE_X][SIZE_Y][SIZE_Z] = {};
         struct Cell { uint8_t x, y, z; };
         std::vector<Cell> queue;
         queue.reserve(SIZE_X * SIZE_Y * SIZE_Z / 4);
 
-        // Засеваем стартовые блоки с нужной грани
         auto seedFace = [&](int face) {
-            for (int u = 0; u < 16; u++)
-                for (int v = 0; v < 16; v++)
+            for (int u = 0; u < SIZE_X; u++)
+                for (int v = 0; v < SIZE_Z; v++)
                 {
                     int x, y, z;
                     switch (face) {
-                    case 0: x = u; y = 15; z = v; break; // +Y
-                    case 1: x = u; y = 0;  z = v; break; // -Y
-                    case 2: x = 15; y = u;  z = v; break; // +X
-                    case 3: x = 0; y = u;  z = v; break; // -X
-                    case 4: x = u; y = v;  z = 15; break; // +Z
-                    case 5: x = u; y = v;  z = 0; break; // -Z
-                    default: x = y = z = 0;
+                    case PY: x = u; y = SIZE_Y - 1; z = v; break;
+                    case NY: x = u; y = 0;          z = v; break;
+                    case PX: x = SIZE_X - 1; y = u; z = v; break;
+                    case NX: x = 0;          y = u; z = v; break;
+                    case PZ: x = u; y = v; z = SIZE_Z - 1; break;
+                    case NZ: x = u; y = v; z = 0;          break;
+                    default: x = y = z = 0; break;
                     }
-                    if (blocks[x][y][z] == AIR && !visited[x][y][z])
-                    {
-                        visited[x][y][z] = true;
-                        queue.push_back({ (uint8_t)x,(uint8_t)y,(uint8_t)z });
-                    }
+                    if (!IsOcclusionPassable(blocks[x][y][z]) || visited[x][y][z])
+                        continue;
+                    visited[x][y][z] = true;
+                    queue.push_back({ (uint8_t)x,(uint8_t)y,(uint8_t)z });
                 }
-            };
+        };
 
         seedFace(startFace);
+        if (queue.empty())
+            continue;
+
         reachable[startFace] |= (1 << startFace);
 
-        // BFS
         for (int i = 0; i < (int)queue.size(); i++)
         {
             auto [cx, cy, cz] = queue[i];
 
-            // Проверяем на каких гранях находится этот блок
-            if (cy == 15) reachable[startFace] |= (1 << 0); // +Y
-            if (cy == 0) reachable[startFace] |= (1 << 1); // -Y
-            if (cx == 15) reachable[startFace] |= (1 << 2); // +X
-            if (cx == 0) reachable[startFace] |= (1 << 3); // -X
-            if (cz == 15) reachable[startFace] |= (1 << 4); // +Z
-            if (cz == 0) reachable[startFace] |= (1 << 5); // -Z
+            if (cy == SIZE_Y - 1) reachable[startFace] |= (1 << PY);
+            if (cy == 0)          reachable[startFace] |= (1 << NY);
+            if (cx == SIZE_X - 1) reachable[startFace] |= (1 << PX);
+            if (cx == 0)          reachable[startFace] |= (1 << NX);
+            if (cz == SIZE_Z - 1) reachable[startFace] |= (1 << PZ);
+            if (cz == 0)          reachable[startFace] |= (1 << NZ);
 
+            const int dx[] = { 0, 0, 1,-1, 0, 0 };
+            const int dy[] = { 1,-1, 0, 0, 0, 0 };
+            const int dz[] = { 0, 0, 0, 0, 1,-1 };
             for (int d = 0; d < 6; d++)
             {
                 int nx = cx + dx[d];
                 int ny = cy + dy[d];
                 int nz = cz + dz[d];
-                if (nx < 0 || nx >= SIZE_X ||
-                    ny < 0 || ny >= SIZE_Y ||
-                    nz < 0 || nz >= SIZE_Z) continue;
-                if (visited[nx][ny][nz]) continue;
-                if (blocks[nx][ny][nz] != AIR) continue;
+                if (nx < 0 || nx >= SIZE_X || ny < 0 || ny >= SIZE_Y || nz < 0 || nz >= SIZE_Z)
+                    continue;
+                if (visited[nx][ny][nz])
+                    continue;
+                if (!IsOcclusionPassable(blocks[nx][ny][nz]))
+                    continue;
                 visited[nx][ny][nz] = true;
                 queue.push_back({ (uint8_t)nx,(uint8_t)ny,(uint8_t)nz });
             }
         }
     }
 
-    // Строим маску из результатов BFS
     visibilityMask = 0;
     for (int a = 0; a < 6; a++)
         for (int b = a + 1; b < 6; b++)

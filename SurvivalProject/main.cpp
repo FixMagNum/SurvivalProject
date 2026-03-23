@@ -1066,6 +1066,32 @@ int main()
             std::unordered_set<ChunkKey, ChunkKeyHash> visited;
             std::queue<QueueEntry> bfsQueue;
 
+            uint8_t startReachableFaces = 0;
+            auto startIt = world.chunkMap.find({ playerCX, playerCY, playerCZ });
+            if (startIt != world.chunkMap.end())
+            {
+                Chunk* startChunk = startIt->second.get();
+                glm::vec3 localPos = camera.Position - startChunk->bounds.min;
+                int startLX = std::clamp((int)std::floor(localPos.x), 0, Chunk::SIZE_X - 1);
+                int startLY = std::clamp((int)std::floor(localPos.y), 0, Chunk::SIZE_Y - 1);
+                int startLZ = std::clamp((int)std::floor(localPos.z), 0, Chunk::SIZE_Z - 1);
+
+                startReachableFaces = startChunk->ComputeReachableFacesFromCell(startLX, startLY, startLZ);
+                if (startReachableFaces == 0)
+                {
+                    for (int radius = 1; radius <= 2 && startReachableFaces == 0; radius++)
+                        for (int dx = -radius; dx <= radius && startReachableFaces == 0; dx++)
+                            for (int dy = -radius; dy <= radius && startReachableFaces == 0; dy++)
+                                for (int dz = -radius; dz <= radius && startReachableFaces == 0; dz++)
+                                {
+                                    int lx = startLX + dx;
+                                    int ly = startLY + dy;
+                                    int lz = startLZ + dz;
+                                    startReachableFaces = startChunk->ComputeReachableFacesFromCell(lx, ly, lz);
+                                }
+                }
+            }
+
             bfsQueue.push({ playerCX, playerCY, playerCZ, -1 });
             visited.insert({ playerCX, playerCY, playerCZ });
 
@@ -1086,6 +1112,7 @@ int main()
                 chunk->CheckFence();
                 if (!chunk->gpuReady) continue;
                 if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
+                if (fromFace != -1 && ((chunk->openFacesMask >> fromFace) & 1) == 0) continue;
 
                 // Рисуем если есть непрозрачный меш
                 if (!chunk->indices.empty())
@@ -1099,20 +1126,31 @@ int main()
                 // Идём в соседей
                 for (int face = 0; face < 6; face++)
                 {
-                    // Проверяем можно ли выйти через эту грань
-                    // fromFace == -1 для стартового чанка — разрешаем все направления
-                    if (fromFace != -1 && !Chunk::CanPassThrough(chunk->visibilityMask, fromFace, face))
+                    if (fromFace == -1)
+                    {
+                        if (((startReachableFaces >> face) & 1) == 0)
+                            continue;
+                    }
+                    else if (!Chunk::CanPassThrough(chunk->visibilityMask, fromFace, face))
+                    {
                         continue;
+                    }
 
                     int nx = cx + nbDx[face];
                     int ny = cy + nbDy[face];
                     int nz = cz + nbDz[face];
 
+                    auto neighborIt = world.chunkMap.find({ nx, ny, nz });
+                    if (neighborIt == world.chunkMap.end()) continue;
+                    Chunk* neighbor = neighborIt->second.get();
+                    const int neighborEnterFace = enterFace(face);
+                    if (((neighbor->openFacesMask >> neighborEnterFace) & 1) == 0) continue;
+
                     ChunkKey nk{ nx, ny, nz };
                     if (visited.count(nk)) continue;
                     visited.insert(nk);
 
-                    bfsQueue.push({ nx, ny, nz, enterFace(face) });
+                    bfsQueue.push({ nx, ny, nz, neighborEnterFace });
                 }
             }
         }
