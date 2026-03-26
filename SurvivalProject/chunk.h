@@ -8,6 +8,7 @@
 #include <tuple>
 #include "block.h"
 #include "aabb.h"
+#include <array>
 
 class World;
 
@@ -25,6 +26,24 @@ enum class ChunkState {
 struct PackedVertex {
     uint32_t data0; // X[31:24] Y[23:16] Z[15:8] faceId[7:5] ao[4:3] corner[2:1]
     uint32_t data1; // tileId[7:0] sizeU[15:8] sizeV[23:16]
+};
+
+struct DrawCmd
+{
+    glm::vec3 center;
+    uint32_t firstIndex;
+    uint32_t indexCount;
+};
+
+struct MeshBucket
+{
+    std::vector<PackedVertex> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<DrawCmd> sortCmds;
+
+    unsigned int VAO = 0;
+    unsigned int VBO = 0;
+    unsigned int EBO = 0;
 };
 
 class Chunk
@@ -56,9 +75,9 @@ public:
     std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
 
     std::vector<PackedVertex> vertices;
-    std::vector<PackedVertex> verticesT;
     std::vector<uint32_t>     indices;
-    std::vector<uint32_t>     indicesT;
+
+    std::array<MeshBucket, (size_t)RenderGroup::Count> meshGroups;
 
     Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr);
     
@@ -77,7 +96,7 @@ public:
 
     void Draw();
 
-    void DrawTransparent();
+    void DrawGroup(RenderGroup group, const glm::vec3& cameraPos);
 
     void CheckFence();
 
@@ -96,13 +115,10 @@ private:
         int tileID, bool flipWinding,
         float ao0, float ao1, float ao2, float ao3,
         int faceId,
-        bool transparent = false);
+        RenderGroup group);
 
     // Считает AO для одной вершины (0..3, где 3 = светло)
     int ComputeAO(int side1, int side2, int corner);
 
     unsigned int VAO, VBO, EBO;
-
-    // Отдельный VAO/VBO/EBO для прозрачных блоков
-    unsigned int VAO_T, VBO_T, EBO_T;
 };

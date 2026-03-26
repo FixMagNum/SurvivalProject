@@ -4,6 +4,8 @@
 #include "block.h"
 #include "FastNoiseLite.h"
 #include <algorithm>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/norm.hpp>
 
 constexpr int ATLAS_SIZE = 16;
 constexpr float TILE_SIZE = 1.0f / ATLAS_SIZE;
@@ -29,6 +31,51 @@ BlockData blockDatabase[] =
     { Tile(13,0), Tile(13,0), Tile(13,0) },   // BEDROCK
 };
 
+static inline bool IsTransparentGroup(RenderGroup g)
+{
+    return g == RenderGroup::Leaves || g == RenderGroup::Water || g == RenderGroup::Glass;
+}
+
+static inline int TransparencyPriority(BlockType b)
+{
+    switch (b)
+    {
+    case GLASS: return 2;
+    case WATER: return 1;
+    case OAK_LEAVES: return 0;
+    default: return -1;
+    }
+}
+
+static inline bool FaceVisible(BlockType cur, BlockType neighbor)
+{
+    if (cur == AIR) return false;
+    if (neighbor == AIR) return true;
+
+    RenderGroup gc = GetRenderGroup(cur);
+    RenderGroup gn = GetRenderGroup(neighbor);
+
+    bool curTransparent = IsTransparentGroup(gc);
+    bool neighborTransparent = IsTransparentGroup(gn);
+
+    int pc = TransparencyPriority(cur);
+    int pn = TransparencyPriority(neighbor);
+
+    // если текущий блок прозрачный, а сосед НЕ прозрачный - грань не рисуем
+    if (curTransparent && !neighborTransparent)
+        return false;
+
+    // оба прозрачные
+    if (curTransparent && neighborTransparent)
+    {
+        // разные прозрачные (вода/стекло) - не рисуем
+        return pc < pn;
+    }
+
+    // Грань видна, если сосед в другой группе
+    return gc != gn;
+}
+
 static const int SEA_LEVEL = 110;
 
 Chunk::Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr)
@@ -46,7 +93,6 @@ Chunk::Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr)
     memset(blocks, 0, sizeof(blocks));
 
     VAO = 0; VBO = 0; EBO = 0;
-    VAO_T = 0; VBO_T = 0; EBO_T = 0;
 }
 
 void Chunk::Generate()
@@ -128,7 +174,7 @@ void Chunk::Generate()
                     // Пещеры
                     float n1 = caveNoise.GetNoise(worldX, (float)worldY, worldZ);
                     float n2 = caveNoise2.GetNoise(worldX, (float)worldY * 0.5f, worldZ);
-                    if (n1 * n1 + n2 * n2 < 0.06f)
+                    if (n1 * n1 + n2 * n2 < 0.006f)
                         block = AIR;
                 }
                 else if (worldY < surfaceY)
@@ -262,10 +308,11 @@ void Chunk::AddQuad(
     int tileID, bool flipWinding,
     float ao0, float ao1, float ao2, float ao3,
     int faceId,
-    bool transparent)
+    RenderGroup group)
 {
-    auto& verts = transparent ? verticesT : vertices;
-    auto& inds = transparent ? indicesT : indices;
+    auto& bucket = meshGroups[(size_t)group];
+    auto& verts = bucket.vertices;
+    auto& inds = bucket.indices;
 
     glm::vec3 p[4] = {
         origin,
@@ -302,6 +349,7 @@ void Chunk::AddQuad(
         };
 
     uint32_t base = (uint32_t)verts.size();
+    uint32_t firstIndex = (uint32_t)inds.size();
     push(0); push(1); push(2); push(3);
 
     if (!flipWinding)
@@ -314,14 +362,22 @@ void Chunk::AddQuad(
         inds.push_back(base + 0); inds.push_back(base + 1); inds.push_back(base + 2);
         inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 3);
     }
+
+    if (group == RenderGroup::Water || group == RenderGroup::Glass)
+    {
+        glm::vec3 center = origin + axis1 * (w * 0.5f) + axis2 * (h * 0.5f);
+        bucket.sortCmds.push_back({ center, firstIndex, 6 });
+    }
 }
 
 void Chunk::GenerateMeshData()
 {
-    vertices.clear();
-    indices.clear();
-    verticesT.clear();
-    indicesT.clear();
+    for (auto& g : meshGroups)
+    {
+        g.vertices.clear();
+        g.indices.clear();
+        g.sortCmds.clear();
+    }
 
     // Проверяем есть ли вообще непустые блоки
     bool hasBlocks = false;
@@ -390,15 +446,22 @@ void Chunk::GenerateMeshData()
         return ComputeAO(s1, s2, c) / 3.0f;
         };
 
-    struct MaskCell {
-        int   tileID = -1;
+    struct MaskCell
+    {
+        int tileID = -1;
+        RenderGroup group = RenderGroup::Opaque;
         float ao[4] = { 1.f, 1.f, 1.f, 1.f };
 
-        bool operator==(const MaskCell& o) const {
-            if (tileID != o.tileID) return false;
-            return ao[0] == o.ao[0] && ao[1] == o.ao[1] &&
-                ao[2] == o.ao[2] && ao[3] == o.ao[3];
+        bool operator==(const MaskCell& o) const
+        {
+            return tileID == o.tileID &&
+                group == o.group &&
+                ao[0] == o.ao[0] &&
+                ao[1] == o.ao[1] &&
+                ao[2] == o.ao[2] &&
+                ao[3] == o.ao[3];
         }
+
         bool empty() const { return tileID < 0; }
     };
 
@@ -416,13 +479,10 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 BlockType above = getBlock(x, y + 1, z);
 
-                bool drawFace = (cur != AIR) &&
-                    (above == AIR || (isTransparent(above) && above != cur)) &&
-                    !(isTransparent(cur) && isTransparent(above));
-
-                if (drawFace)
+                if (FaceVisible(cur, above))
                 {
                     cell.tileID = getTile(cur, 0);
+                    cell.group = GetRenderGroup(cur);
                     cell.ao[0] = aoVal(solid(x - 1, y + 1, z), solid(x, y + 1, z - 1), solid(x - 1, y + 1, z - 1));
                     cell.ao[1] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z - 1), solid(x + 1, y + 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z + 1), solid(x + 1, y + 1, z + 1));
@@ -454,15 +514,14 @@ void Chunk::GenerateMeshData()
                         used[x + ix][z + iz] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
-                float topY = y + 1.0f;
+                RenderGroup group = GetRenderGroup(cur);
 
-                AddQuad(glm::vec3(x, topY, z),
+                AddQuad(glm::vec3(x, y + 1, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    0, trans);
+                    0, group);
             }
     }
 
@@ -479,11 +538,11 @@ void Chunk::GenerateMeshData()
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
                 BlockType below = getBlock(x, y - 1, z);
-                if (cur != AIR &&
-                    (below == AIR || (isTransparent(below) && below != cur)) &&
-                    !(isTransparent(cur) && isTransparent(below)))
+                
+                if (FaceVisible(cur, below))
                 {
                     cell.tileID = getTile(cur, 1);
+                    cell.group = GetRenderGroup(cur);
                     cell.ao[0] = aoVal(solid(x - 1, y - 1, z), solid(x, y - 1, z - 1), solid(x - 1, y - 1, z - 1));
                     cell.ao[1] = aoVal(solid(x + 1, y - 1, z), solid(x, y - 1, z - 1), solid(x + 1, y - 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y - 1, z), solid(x, y - 1, z + 1), solid(x + 1, y - 1, z + 1));
@@ -515,14 +574,14 @@ void Chunk::GenerateMeshData()
                         used[x + ix][z + iz] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
+                RenderGroup group = GetRenderGroup(cur);
 
                 AddQuad(glm::vec3(x, y, z),
                     glm::vec3(1, 0, 0), dx,
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    1, trans);
+                    1, group);
             }
     }
 
@@ -540,15 +599,14 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 BlockType neighbor = getBlock(x + 1, y, z);
 
-                if (cur != AIR &&
-                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
-                    !(isTransparent(cur) && isTransparent(neighbor)))
+                if (FaceVisible(cur, neighbor))
                 {
                     cell.tileID = getTile(cur, 2);
-                    cell.ao[0] = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z - 1), solid(x + 1, y - 1, z - 1));
-                    cell.ao[1] = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z + 1), solid(x + 1, y - 1, z + 1));
-                    cell.ao[2] = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z + 1), solid(x + 1, y + 1, z + 1));
-                    cell.ao[3] = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z - 1), solid(x + 1, y + 1, z - 1));
+                    cell.group  = GetRenderGroup(cur);
+                    cell.ao[0]  = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z - 1), solid(x + 1, y - 1, z - 1));
+                    cell.ao[1]  = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z + 1), solid(x + 1, y - 1, z + 1));
+                    cell.ao[2]  = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z + 1), solid(x + 1, y + 1, z + 1));
+                    cell.ao[3]  = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z - 1), solid(x + 1, y + 1, z - 1));
                 }
                 else cell.tileID = -1;
             }
@@ -576,7 +634,7 @@ void Chunk::GenerateMeshData()
                         used[z + iz][y + iy] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
+                RenderGroup group = GetRenderGroup(cur);
                 int quadH = dy;
 
                 AddQuad(glm::vec3(x + 1, y, z),
@@ -584,7 +642,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    2, trans);
+                    2, group);
             }
     }
 
@@ -602,11 +660,10 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 BlockType neighbor = getBlock(x - 1, y, z);
 
-                if (cur != AIR &&
-                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
-                    !(isTransparent(cur) && isTransparent(neighbor)))
+                if (FaceVisible(cur, neighbor))
                 {
                     cell.tileID = getTile(cur, 2);
+                    cell.group = GetRenderGroup(cur);
                     cell.ao[0] = aoVal(solid(x - 1, y - 1, z), solid(x - 1, y, z - 1), solid(x - 1, y - 1, z - 1));
                     cell.ao[1] = aoVal(solid(x - 1, y - 1, z), solid(x - 1, y, z + 1), solid(x - 1, y - 1, z + 1));
                     cell.ao[2] = aoVal(solid(x - 1, y + 1, z), solid(x - 1, y, z + 1), solid(x - 1, y + 1, z + 1));
@@ -638,7 +695,7 @@ void Chunk::GenerateMeshData()
                         used[z + iz][y + iy] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
+                RenderGroup group = GetRenderGroup(cur);
                 int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z),
@@ -646,7 +703,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    3, trans);
+                    3, group);
             }
     }
 
@@ -664,11 +721,10 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 BlockType neighbor = getBlock(x, y, z + 1);
 
-                if (cur != AIR &&
-                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
-                    !(isTransparent(cur) && isTransparent(neighbor)))
+                if (FaceVisible(cur, neighbor))
                 {
                     cell.tileID = getTile(cur, 2);
+                    cell.group = GetRenderGroup(cur);
                     cell.ao[0] = aoVal(solid(x - 1, y, z + 1), solid(x, y - 1, z + 1), solid(x - 1, y - 1, z + 1));
                     cell.ao[1] = aoVal(solid(x + 1, y, z + 1), solid(x, y - 1, z + 1), solid(x + 1, y - 1, z + 1));
                     cell.ao[2] = aoVal(solid(x + 1, y, z + 1), solid(x, y + 1, z + 1), solid(x + 1, y + 1, z + 1));
@@ -700,7 +756,7 @@ void Chunk::GenerateMeshData()
                         used[x + ix][y + iy] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
+                RenderGroup group = GetRenderGroup(cur);
                 int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z + 1),
@@ -708,7 +764,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    4, trans);
+                    4, group);
             }
     }
 
@@ -726,11 +782,10 @@ void Chunk::GenerateMeshData()
                 BlockType cur = getBlock(x, y, z);
                 BlockType neighbor = getBlock(x, y, z - 1);
 
-                if (cur != AIR &&
-                    (neighbor == AIR || (isTransparent(neighbor) && neighbor != cur)) &&
-                    !(isTransparent(cur) && isTransparent(neighbor)))
+                if (FaceVisible(cur, neighbor))
                 {
                     cell.tileID = getTile(cur, 2);
+                    cell.group = GetRenderGroup(cur);
                     cell.ao[0] = aoVal(solid(x - 1, y, z - 1), solid(x, y - 1, z - 1), solid(x - 1, y - 1, z - 1));
                     cell.ao[1] = aoVal(solid(x + 1, y, z - 1), solid(x, y - 1, z - 1), solid(x + 1, y - 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y, z - 1), solid(x, y + 1, z - 1), solid(x + 1, y + 1, z - 1));
@@ -762,7 +817,7 @@ void Chunk::GenerateMeshData()
                         used[x + ix][y + iy] = true;
 
                 BlockType cur = getBlock(x, y, z);
-                bool trans = isTransparent(cur);
+                RenderGroup group = GetRenderGroup(cur);
                 int quadH = dy;
 
                 AddQuad(glm::vec3(x, y, z),
@@ -770,7 +825,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    5, trans);
+                    5, group);
             }
     }
 }
@@ -779,44 +834,37 @@ void Chunk::UploadToGPU(bool isRebuild)
 {
     constexpr int STRIDE = sizeof(PackedVertex);
 
-    // Непрозрачный меш
-    if (VAO == 0)
-    {
-        glGenVertexArrays(1, &VAO);
-        glGenBuffers(1, &VBO);
-        glGenBuffers(1, &EBO);
-    }
-
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(PackedVertex), vertices.data(), GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_DYNAMIC_DRAW);
-
-    glVertexAttribIPointer(0, 2, GL_UNSIGNED_INT, STRIDE, (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
-
-    // Прозрачный меш
-    if (!verticesT.empty())
-    {
-        if (VAO_T == 0)
+    auto uploadBucket = [](MeshBucket& b)
         {
-            glGenVertexArrays(1, &VAO_T);
-            glGenBuffers(1, &VBO_T);
-            glGenBuffers(1, &EBO_T);
-        }
+            if (b.vertices.empty() || b.indices.empty())
+            {
+                if (b.VAO) { glDeleteVertexArrays(1, &b.VAO); b.VAO = 0; }
+                if (b.VBO) { glDeleteBuffers(1, &b.VBO); b.VBO = 0; }
+                if (b.EBO) { glDeleteBuffers(1, &b.EBO); b.EBO = 0; }
+                return;
+            }
 
-        glBindVertexArray(VAO_T);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_T);
-        glBufferData(GL_ARRAY_BUFFER, verticesT.size() * sizeof(PackedVertex), verticesT.data(), GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_T);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicesT.size() * sizeof(uint32_t), indicesT.data(), GL_DYNAMIC_DRAW);
+            if (b.VAO == 0)
+            {
+                glGenVertexArrays(1, &b.VAO);
+                glGenBuffers(1, &b.VBO);
+                glGenBuffers(1, &b.EBO);
+            }
 
-        glVertexAttribIPointer(0, 2, GL_UNSIGNED_INT, STRIDE, (void*)0);
-        glEnableVertexAttribArray(0);
-        glBindVertexArray(0);
-    }
+            glBindVertexArray(b.VAO);
+            glBindBuffer(GL_ARRAY_BUFFER, b.VBO);
+            glBufferData(GL_ARRAY_BUFFER, b.vertices.size() * sizeof(PackedVertex), b.vertices.data(), GL_DYNAMIC_DRAW);
+
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.EBO);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, b.indices.size() * sizeof(uint32_t), b.indices.data(), GL_DYNAMIC_DRAW);
+
+            glVertexAttribIPointer(0, 2, GL_UNSIGNED_INT, sizeof(PackedVertex), (void*)0);
+            glEnableVertexAttribArray(0);
+            glBindVertexArray(0);
+        };
+
+    for (auto& bucket : meshGroups)
+        uploadBucket(bucket);
 
     if (isRebuild)
     {
@@ -835,6 +883,45 @@ void Chunk::UploadToGPU(bool isRebuild)
     state.store(ChunkState::Uploaded);
 }
 
+void Chunk::DrawGroup(RenderGroup group, const glm::vec3& cameraPos)
+{
+    auto& bucket = meshGroups[(size_t)group];
+    if (bucket.VAO == 0 || bucket.indices.empty()) return;
+
+    glBindVertexArray(bucket.VAO);
+
+    if (group == RenderGroup::Water || group == RenderGroup::Glass)
+    {
+        std::vector<const DrawCmd*> order;
+        order.reserve(bucket.sortCmds.size());
+
+        for (auto& cmd : bucket.sortCmds)
+            order.push_back(&cmd);
+
+        std::sort(order.begin(), order.end(),
+            [&cameraPos](const DrawCmd* a, const DrawCmd* b)
+            {
+                float da = glm::length2(a->center - cameraPos);
+                float db = glm::length2(b->center - cameraPos);
+                return da > db;
+            });
+
+        for (const DrawCmd* cmd : order)
+        {
+            glDrawElements(
+                GL_TRIANGLES,
+                (GLsizei)cmd->indexCount,
+                GL_UNSIGNED_INT,
+                (void*)(uintptr_t)(cmd->firstIndex * sizeof(uint32_t))
+            );
+        }
+    }
+    else
+    {
+        glDrawElements(GL_TRIANGLES, (GLsizei)bucket.indices.size(), GL_UNSIGNED_INT, 0);
+    }
+}
+
 void Chunk::BuildMesh()
 {
     GenerateMeshData();
@@ -845,16 +932,22 @@ void Chunk::FreeGPU()
 {
     if (uploadFence) { glDeleteSync(uploadFence); uploadFence = nullptr; }
     gpuReady = false;
-    if (VAO) { glDeleteVertexArrays(1, &VAO);   VAO = 0; }
-    if (VBO) { glDeleteBuffers(1, &VBO);         VBO = 0; }
-    if (EBO) { glDeleteBuffers(1, &EBO);         EBO = 0; }
-    if (VAO_T) { glDeleteVertexArrays(1, &VAO_T); VAO_T = 0; }
-    if (VBO_T) { glDeleteBuffers(1, &VBO_T);       VBO_T = 0; }
-    if (EBO_T) { glDeleteBuffers(1, &EBO_T);       EBO_T = 0; }
+    if (VAO) { glDeleteVertexArrays(1, &VAO); VAO = 0; }
+    if (VBO) { glDeleteBuffers(1, &VBO); VBO = 0; }
+    if (EBO) { glDeleteBuffers(1, &EBO); EBO = 0; }
     vertices.clear();
     indices.clear();
-    verticesT.clear();
-    indicesT.clear();
+    
+    for (auto& b : meshGroups)
+    {
+        if (b.VAO) { glDeleteVertexArrays(1, &b.VAO); b.VAO = 0; }
+        if (b.VBO) { glDeleteBuffers(1, &b.VBO); b.VBO = 0; }
+        if (b.EBO) { glDeleteBuffers(1, &b.EBO); b.EBO = 0; }
+        b.vertices.clear();
+        b.indices.clear();
+        b.sortCmds.clear();
+    }
+
     state.store(ChunkState::Empty);
 }
 
@@ -863,13 +956,6 @@ void Chunk::Draw()
     if (indices.empty()) return;
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_INT, 0);
-}
-
-void Chunk::DrawTransparent()
-{
-    if (VAO_T == 0 || indicesT.empty()) return;
-    glBindVertexArray(VAO_T);
-    glDrawElements(GL_TRIANGLES, (GLsizei)indicesT.size(), GL_UNSIGNED_INT, 0);
 }
 
 void Chunk::CheckFence()

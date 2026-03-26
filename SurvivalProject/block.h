@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>	
 
 enum BlockType
 {
@@ -15,6 +16,31 @@ enum BlockType
 	SNOW,
 	BEDROCK,
 };
+
+enum class RenderGroup : uint8_t
+{
+	Opaque = 0,
+	Leaves = 1, // alpha clip
+	Water  = 2, // translucent
+	Glass  = 3, // translucent
+	Count
+};
+
+inline RenderGroup GetRenderGroup(BlockType b)
+{
+	switch (b)
+	{
+	case OAK_LEAVES: return RenderGroup::Leaves;
+	case WATER:      return RenderGroup::Water;
+	case GLASS:      return RenderGroup::Glass;
+	default:         return RenderGroup::Opaque;
+	}
+}
+
+inline bool IsRenderable(BlockType b)
+{
+	return b != AIR;
+}
 
 struct BlockData
 {

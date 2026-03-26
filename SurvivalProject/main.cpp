@@ -100,7 +100,7 @@ uniform vec3  uSunColor;        // цвет солнца (меняется де�
 uniform vec3  uMoonDir;
 uniform vec3  uMoonColor;
 uniform float uAmbient;         // минимальная яркость (ночью меньше)
-uniform bool  uTransparentPass; // новый uniform
+uniform bool  uAlphaClip;
 uniform vec3  uCameraPos;       // позиция камеры
 uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
 uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
@@ -112,6 +112,9 @@ void main()
 {
     vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
     vec4 texColor = texture(texture1, uv);
+
+    if (uAlphaClip && texColor.a < 0.5)
+        discard;
 
     float sunDiff  = max(dot(Normal, uSunDir),  0.0);
     float moonDiff = max(dot(Normal, uMoonDir), 0.0);
@@ -1001,6 +1004,13 @@ int main()
         bool underwater = (cameraBlock == WATER);
 
         // Рендер
+        static const RenderGroup renderOrder[] = {
+            RenderGroup::Opaque,
+            RenderGroup::Leaves,
+            RenderGroup::Water,
+            RenderGroup::Glass
+        };
+
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
@@ -1012,8 +1022,8 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
-        unsigned int transparentPassLoc = glGetUniformLocation(shaderProgram, "uTransparentPass");
-        glUniform1i(transparentPassLoc, 0);
+
+        int alphaClipLoc = glGetUniformLocation(shaderProgram, "uAlphaClip");
         glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0);
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
@@ -1031,80 +1041,68 @@ int main()
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
 
-        int visibleChunks = 0;
+        // Общие fixed-function state
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+
+        for (RenderGroup group : renderOrder)
         {
-            std::lock_guard<std::mutex> lock(world.chunkMapMutex);
-            for (auto& [key, chunk] : world.chunkMap)
+            // Настройка state под текущую группу
+            if (group == RenderGroup::Opaque)
             {
-                if (chunk->state.load() != ChunkState::Uploaded) continue;
-                chunk->CheckFence(); // проверяем без блокировки
-                if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
-                if (!chunk->indices.empty() && frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max))
-                {
-                    // Матрица трансляции для этого чанка
-                    glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
-                    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
-
-                    chunk->Draw();
-                    visibleChunks++;
-                }
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+                glUniform1i(alphaClipLoc, 0);
             }
-        }
-        lastVisibleChunks = visibleChunks;
-
-        glDepthMask(GL_FALSE);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        glUniform1i(transparentPassLoc, 1); // включаем прозрачность
-
-        {
-            std::lock_guard<std::mutex> lock(world.chunkMapMutex);
-
-            // Собираем видимые чанки с прозрачным мешом
-            std::vector<Chunk*> transparentChunks;
-            for (auto& [key, chunk] : world.chunkMap)
+            else if (group == RenderGroup::Leaves)
             {
-                if (chunk->state.load() != ChunkState::Uploaded) continue;
-                if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
-                if (chunk->indicesT.empty()) continue;
-                transparentChunks.push_back(chunk.get());
+                glDisable(GL_CULL_FACE);
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+                glUniform1i(alphaClipLoc, 1); // листья режем по альфе
+            }
+            else if (group == RenderGroup::Water)
+            {
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glUniform1i(alphaClipLoc, 0);
+            }
+            else
+            {
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
+                glDepthMask(GL_FALSE);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glUniform1i(alphaClipLoc, 0);
             }
 
-            // Сортируем от дальних к ближним
-            glm::vec3 camPos = camera.Position;
-            std::sort(transparentChunks.begin(), transparentChunks.end(),
-                [&camPos](Chunk* a, Chunk* b) {
-                    glm::vec3 centerA = (a->bounds.min + a->bounds.max) * 0.5f;
-                    glm::vec3 centerB = (b->bounds.min + b->bounds.max) * 0.5f;
-                    float distA = glm::length2(centerA - camPos);
-                    float distB = glm::length2(centerB - camPos);
-                    return distA > distB; // дальние первыми
-                });
+			std::lock_guard<std::mutex> lock(world.chunkMapMutex);
 
-            // Проход 1 — только задние грани
-            glCullFace(GL_FRONT);
-            glEnable(GL_CULL_FACE);
-            for (Chunk* chunk : transparentChunks) {
-                glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
-                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
-                chunk->DrawTransparent();
-            }
+			for (auto& [key, chunk] : world.chunkMap)
+			{
+				if (chunk->state.load() != ChunkState::Uploaded) continue;
+				chunk->CheckFence(); // проверяем без блокировки
+				if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
+				if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
 
-            // Проход 2 — только передние грани
-            glCullFace(GL_BACK);
-            for (Chunk* chunk : transparentChunks) {
-                glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
-                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
-                chunk->DrawTransparent();
-            }
-        }
+				// Матрица трансляции для этого чанка
+				glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
+				glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
+
+				chunk->DrawGroup(group, camera.Position);
+			}
+		}
 
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
         glCullFace(GL_BACK);
         glEnable(GL_CULL_FACE);
-        glUniform1i(transparentPassLoc, 0);
+        glUniform1i(alphaClipLoc, 0);
 
         // Подсветка блока
         if (hit.hit)
