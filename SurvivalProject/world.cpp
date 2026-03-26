@@ -371,7 +371,7 @@ int World::UploadPendingChunks(int maxPerFrame)
 
 BlockType World::GetBlock(int worldX, int worldY, int worldZ)
 {
-    if (worldY < 0) return STONE;
+    if (worldY < 0) return AIR;
     if (worldY >= 512) return AIR;
 
     int chunkX = (int)floor((float)worldX / Chunk::SIZE_X);

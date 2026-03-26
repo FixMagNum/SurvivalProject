@@ -46,6 +46,7 @@ const vec3 normals[6] = vec3[6](
 );
 
 // UV углы quad: corner 0..3
+// corners дают (0,0)..(1,1) — умножаем на реальный размер quad
 const vec2 corners[4] = vec2[4](
     vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)
 );
@@ -68,11 +69,6 @@ void main()
     uint sizeU  = (d1 >> 8)  & 0xFFu;
     uint sizeV  = (d1 >> 16) & 0xFFu;
 
-    // corners дают (0,0)..(1,1) — умножаем на реальный размер quad
-    const vec2 corners[4] = vec2[4](
-        vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)
-    );
-
     vec3 pos = vec3(px, py, pz);
 
     gl_Position = projection * view * model * vec4(pos, 1.0);
@@ -80,7 +76,7 @@ void main()
 
     Normal    = normals[faceId];
     AO        = float(ao) / 3.0;
-    TexCoord = corners[corner] * vec2(float(sizeU), float(sizeV));
+    TexCoord  = corners[corner] * vec2(float(sizeU), float(sizeV));
 
     uint tileX = tileId % 16u;
     uint tileY = tileId / 16u;
@@ -117,13 +113,10 @@ void main()
     vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
     vec4 texColor = texture(texture1, uv);
 
-    if (uTransparentPass && texColor.a < 0.5)
-        discard;
-
     float sunDiff  = max(dot(Normal, uSunDir),  0.0);
     float moonDiff = max(dot(Normal, uMoonDir), 0.0);
 
-    float aoFactor = mix(0.6, 1.0, AO);
+    float aoFactor = mix(0.2, 1.0, AO);
 
     float sunFade  = smoothstep(-0.1, 0.15, uSunDir.y);
     float moonFade = smoothstep(-0.1, 0.15, uMoonDir.y);
@@ -458,7 +451,6 @@ int main()
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
 
@@ -688,9 +680,9 @@ int main()
             {
                 BlockType broken = world.GetBlock(hit.worldX, hit.worldY, hit.worldZ);
 
-                // Разрушаем блок — ставим AIR
-                world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
-                world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
+				// Разрушаем блок — ставим AIR
+				world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
+				world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
 
                 // Кладём блок в инвентарь
                 if (broken != AIR)
@@ -822,7 +814,7 @@ int main()
         ImGui::Text("FPS: %6.1f", displayFPS);
         ImGui::Text("Frametime: %6.2f ms", displayMS);
         ImGui::Separator();
-        ImGui::Text("Chunks: %d", lastVisibleChunks);
+        ImGui::Text("Visible chunks: %d", lastVisibleChunks);
         ImGui::Text("Total chunks: %d", (int)world.chunkMap.size());
         ImGui::Text("Time: %.2f", g_timeOfDay);
         ImGui::End();

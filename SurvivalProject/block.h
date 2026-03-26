@@ -13,6 +13,7 @@ enum BlockType
 	OAK_LEAVES,
 	SAND,
 	SNOW,
+	BEDROCK,
 };
 
 struct BlockData

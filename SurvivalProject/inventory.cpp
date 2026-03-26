@@ -33,6 +33,7 @@ static int GetTopTile(BlockType type)
 	case OAK_LEAVES: return tile(10, 0);
 	case SAND:       return tile(11, 0);
 	case SNOW:       return tile(12, 0);
+    case BEDROCK:    return tile(13, 0);
     default:         return -1;
     }
 }

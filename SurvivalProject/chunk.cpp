@@ -26,6 +26,7 @@ BlockData blockDatabase[] =
     { Tile(10,0), Tile(10,0), Tile(10,0) },   // OAK_LEAVES
     { Tile(11,0), Tile(11,0), Tile(11,0) },   // SAND
 	{ Tile(12,0), Tile(12,0), Tile(12,0) },   // SNOW
+    { Tile(13,0), Tile(13,0), Tile(13,0) },   // BEDROCK
 };
 
 static const int SEA_LEVEL = 110;
@@ -119,7 +120,7 @@ void Chunk::Generate()
                 BlockType block = AIR;
 
                 if (worldY == 0)
-                    block = STONE;
+                    block = BEDROCK;
                 else if (worldY < surfaceY - 3)
                 {
                     block = STONE;
