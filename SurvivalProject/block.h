@@ -15,6 +15,8 @@ enum BlockType
 	SAND,
 	SNOW,
 	BEDROCK,
+	COBBLESTONE,
+	POOP,
 };
 
 enum class RenderGroup : uint8_t

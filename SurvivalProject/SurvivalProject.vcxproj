@@ -105,14 +105,13 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\Libraries\glfw-3.4\lib-vc2022\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;
-opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Libraries\glfw-3.4\lib-vc2022\;D:\Libraries\openal-soft-1.25.1\libs\Win64\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>glfw3.lib;OpenAL32.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -124,17 +123,17 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\Libraries\glfw-3.4\lib-vc2022\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;
-opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Libraries\glfw-3.4\lib-vc2022\;D:\Libraries\openal-soft-1.25.1\libs\Win64\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>glfw3.lib;OpenAL32.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="audio.cpp" />
     <ClCompile Include="camera.cpp" />
     <ClCompile Include="chunk.cpp" />
     <ClCompile Include="D:\Libraries\glad\src\glad.c" />
@@ -154,6 +153,7 @@ opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="aabb.h" />
+    <ClInclude Include="audio.h" />
     <ClInclude Include="block.h" />
     <ClInclude Include="camera.h" />
     <ClInclude Include="chunk.h" />

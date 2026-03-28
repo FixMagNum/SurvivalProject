@@ -20,6 +20,7 @@
 #include "imgui_impl_opengl3.h"
 #include "hotbar.h"
 #include "inventory.h"
+#include "audio.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -204,6 +205,7 @@ static int  g_windowedW = 800, g_windowedH = 600;
 // Флаги кликов мыши (устанавливаются в callback, читаются в game loop)
 static bool g_leftClick = false;
 static bool g_rightClick = false;
+static bool g_prevSpace = false;
 
 static double g_mouseX = 0.0, g_mouseY = 0.0;
 
@@ -349,6 +351,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    //glfwWindowHint(GLFW_SAMPLES, 4);
 
     GLFWwindow* window = glfwCreateWindow((int)g_width, (int)g_height, "SurvivalProject", NULL, NULL);
     glfwMakeContextCurrent(window);
@@ -448,6 +451,8 @@ int main()
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
+    //glEnable(GL_MULTISAMPLE);
+    //glfwSwapInterval(1);
 
     // Текстура
     unsigned int textureID;
@@ -459,7 +464,7 @@ int main()
 
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true);
-    unsigned char* data = stbi_load("Assets/atlas.png", &width, &height, &nrChannels, 0);
+    unsigned char* data = stbi_load("Assets/textures/atlas.png", &width, &height, &nrChannels, 0);
     if (data)
     {
         GLenum fmt = (nrChannels == 4) ? GL_RGBA : (nrChannels == 3 ? GL_RGB : GL_RED);
@@ -470,11 +475,23 @@ int main()
     else std::cout << "Failed to load texture\n";
     stbi_image_free(data);
 
+    Audio::Init();
+    Audio::LoadBlockSounds();
+    ALuint placeSound = Audio::LoadWav("Assets/sounds/place.wav");
+
     hotbar.Init(textureID);
     inventory.Init(textureID);
 
     inventory.Load();
     hotbar.Load();
+
+    hotbar.slots[0] = COBBLESTONE, hotbar.counts[0] = 64;
+    hotbar.slots[1] = GLASS, hotbar.counts[1] = 64;
+    hotbar.slots[2] = SNOW, hotbar.counts[2] = 64;
+    hotbar.slots[3] = OAK_PLANKS, hotbar.counts[3] = 64;
+    hotbar.slots[4] = OAK_LOG, hotbar.counts[4] = 64;
+    hotbar.slots[5] = COBBLESTONE, hotbar.counts[5] = 64;
+    hotbar.slots[6] = POOP, hotbar.counts[6] = 64;
 
     // Мир
     World world;
@@ -597,8 +614,32 @@ int main()
             player.isCrouching = wantsCrouch;
         }
 
+        bool spaceDown = (!inventory.isOpen) && (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
+
+        if (spaceDown && !g_prevSpace)
+        {
+            if (player.inWater)
+                player.RequestSwimUp();
+            else
+                player.RequestJump();
+        }
+
+        g_prevSpace = spaceDown;
+
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
+
+        Audio::SetListener(
+            camera.Position.x,
+            camera.Position.y,
+            camera.Position.z,
+            camera.Front.x,
+            camera.Front.y,
+            camera.Front.z,
+            camera.Up.x,
+            camera.Up.y,
+            camera.Up.z
+        );
 
         // Респаун после смерти
         static float respawnTime = -1.0f; // время респауна
@@ -610,6 +651,10 @@ int main()
             player.velocity = glm::vec3(0.0f);
             player.health = Player::MAX_HEALTH;
             player.isDead = false;
+            player.maxFallSpeed = 0.0f;
+            player.coyoteTimer = 0.0f;
+            player.jumpBufferTimer = 0.0f;
+            player.isGrounded = false;
             camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
             respawnTime = currentFrame;
             respawnPending = true;
@@ -643,12 +688,12 @@ int main()
                 player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
                 player.velocity = glm::vec3(0.0f);
                 player.maxFallSpeed = 0.0f; // сбрасываем урон от падения
+                player.coyoteTimer = 0.0f;
+                player.jumpBufferTimer = 0.0f;
+                player.isGrounded = false;
                 camera.Position = player.position + glm::vec3(0.0f, Player::EYE_HEIGHT, 0.0f);
             }
         }
-
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-            player.Jump();
 
         // Динамическая подгрузка
         int playerCX = (int)floor(camera.Position.x / Chunk::SIZE_X);
@@ -685,6 +730,11 @@ int main()
 
 				// Разрушаем блок — ставим AIR
 				world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
+                Audio::PlayBlockBreak(broken,
+                    hit.worldX + 0.5f,
+                    hit.worldY + 0.5f,
+                    hit.worldZ + 0.5f
+                );
 				world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
 
                 // Кладём блок в инвентарь
@@ -775,6 +825,11 @@ int main()
                 {
                     // Используем активный блок при ПКМ
                     world.SetBlock(placeX, placeY, placeZ, hotbar.GetActiveBlock());
+                    Audio::Play3D(placeSound,
+                        placeX + 0.5f,
+                        placeY + 0.5f,
+                        placeZ + 0.5f
+                    );
                     world.RebuildChunkAt(placeX, placeY, placeZ);
 
                     // Трата блока 
@@ -1013,7 +1068,7 @@ int main()
 
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(90.0f), g_width / g_height, 0.1f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
@@ -1162,6 +1217,7 @@ int main()
 
     inventory.Save();
     hotbar.Save();
+    Audio::Shutdown();
 
     glfwTerminate();
     return 0;

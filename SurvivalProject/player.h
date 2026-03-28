@@ -2,6 +2,7 @@
 #include <glm/glm.hpp>
 #include "camera.h"
 #include "world.h"
+#include <cfloat>
 
 class Player
 {
@@ -22,6 +23,24 @@ public:
     static constexpr float CROUCH_HEIGHT = 1.4f;     // высота при приседании
     static constexpr float CROUCH_EYE_HEIGHT = 1.0f; // глаза при приседании
 
+    static constexpr float COYOTE_TIME = 0.12f;
+    static constexpr float JUMP_BUFFER_TIME = 0.12f;
+
+    static constexpr float ACCEL_GROUND = 35.0f;
+    static constexpr float ACCEL_AIR = 12.0f;
+    static constexpr float FRICTION_GROUND = 22.0f;
+    static constexpr float FRICTION_AIR = 2.0f;
+
+    static constexpr float WATER_SPEED_MULT = 0.45f;
+    static constexpr float WATER_GRAVITY_MULT = 0.20f;
+
+    static constexpr float WATER_DRAG = 8.0f;
+
+    static constexpr float WATER_SWIM_UP_ACCEL = 16.0f;
+    static constexpr float WATER_SWIM_DOWN_ACCEL = 12.0f;
+    static constexpr float WATER_MAX_UP_SPEED = 4.5f;
+    static constexpr float WATER_MAX_DOWN_SPEED = -4.0f;
+
     bool isGrounded  = false;
     bool isSprinting = false;
     bool isCrouching = false;
@@ -29,7 +48,8 @@ public:
     Player(glm::vec3 spawnPos);
 
     void Update(float deltaTime, World& world, Camera& camera);
-    void Jump();
+    void RequestJump();
+    void RequestSwimUp();
     // Возвращает true если блок твёрдый
     bool IsSolid(int x, int y, int z, World& world);
 
@@ -39,6 +59,16 @@ public:
     bool moveLeft = false;
     bool moveRight = false;
     bool inWater = false;
+    bool swimUpRequested = false;
+
+    struct WaterInfo
+    {
+        bool touching = false;
+        float surfaceY = -FLT_MAX;   // верхняя граница самой высокой водяной клетки, пересекающей игрока
+        float submersion = 0.0f;     // 0..1 насколько тело в воде
+    };
+
+    WaterInfo SampleWater(World& world) const;
 
     static constexpr float MAX_HEALTH = 20.0f;
     static constexpr float FALL_DAMAGE_THRESHOLD = 4.0f; // с какой высоты начинается урон
@@ -48,6 +78,10 @@ public:
 
     // Для расчёта урона от падения
     float maxFallSpeed = 0.0f; // максимальная скорость падения за этот прыжок
+
+    // Буферы управления
+    float coyoteTimer = 0.0f;
+    float jumpBufferTimer = 0.0f;
 
 private:
     // Двигаем по одной оси и сразу резолвим коллизии

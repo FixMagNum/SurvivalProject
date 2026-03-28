@@ -29,6 +29,8 @@ BlockData blockDatabase[] =
     { Tile(11,0), Tile(11,0), Tile(11,0) },   // SAND
 	{ Tile(12,0), Tile(12,0), Tile(12,0) },   // SNOW
     { Tile(13,0), Tile(13,0), Tile(13,0) },   // BEDROCK
+    { Tile(14,0), Tile(14,0), Tile(14,0) },   // COBBLESTONE
+    { Tile(15,0), Tile(15,0), Tile(15,0) },   // POOP
 };
 
 static inline bool IsTransparentGroup(RenderGroup g)

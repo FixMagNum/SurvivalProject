@@ -1,5 +1,6 @@
 #include "player.h"
 #include <cmath>
+#include <algorithm>
 
 Player::Player(glm::vec3 spawnPos)
 {
@@ -8,6 +9,7 @@ Player::Player(glm::vec3 spawnPos)
     isGrounded = false;
     isSprinting = false;
     isCrouching = false;
+    swimUpRequested = false;
 }
 
 bool Player::IsSolid(int x, int y, int z, World& world)
@@ -16,13 +18,54 @@ bool Player::IsSolid(int x, int y, int z, World& world)
     return b != AIR && b != WATER;
 }
 
+Player::WaterInfo Player::SampleWater(World& world) const
+{
+    WaterInfo info;
+
+    float half = WIDTH * 0.5f;
+    float height = isCrouching ? CROUCH_HEIGHT : HEIGHT;
+
+    int minX = (int)floor(position.x - half + 0.01f);
+    int maxX = (int)floor(position.x + half - 0.01f);
+    int minY = (int)floor(position.y + 0.01f);
+    int maxY = (int)floor(position.y + height - 0.01f);
+    int minZ = (int)floor(position.z - half + 0.01f);
+    int maxZ = (int)floor(position.z + half - 0.01f);
+
+    for (int x = minX; x <= maxX; x++)
+        for (int y = minY; y <= maxY; y++)
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                if (world.GetBlock(x, y, z) == WATER)
+                {
+                    info.touching = true;
+                    info.surfaceY = std::max(info.surfaceY, (float)y + 1.0f);
+                }
+            }
+
+    if (info.touching)
+    {
+        info.submersion = std::clamp((info.surfaceY - position.y) / height, 0.0f, 1.0f);
+    }
+
+    return info;
+}
+
+void Player::RequestJump()
+{
+    jumpBufferTimer = JUMP_BUFFER_TIME;
+}
+
+void Player::RequestSwimUp()
+{
+    swimUpRequested = true;
+}
+
 void Player::MoveAndCollide(glm::vec3 delta, World& world)
 {
     float half = WIDTH / 2.0f;
 
     float currentHeight = isCrouching ? CROUCH_HEIGHT : HEIGHT;
-
-    int maxY = (int)floor(position.y + currentHeight - 0.001f);
 
     auto resolveAxis = [&](int axis, float d)
         {
@@ -88,62 +131,152 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
     resolveAxis(2, delta.z);
 }
 
-void Player::Jump()
-{
-    if (isGrounded)
-        velocity.y = JUMP_SPEED;
-    else if (inWater)
-        velocity.y = JUMP_SPEED * 0.5f;
-}
-
 void Player::Update(float deltaTime, World& world, Camera& camera)
 {
     float half = WIDTH / 2.0f;
 
-    // Гравитация
-    velocity.y += GRAVITY * deltaTime;
+    WaterInfo water = SampleWater(world);
+    inWater = water.touching;
 
-    // Ограничиваем скорость падения
-    if (velocity.y < -50.0f) velocity.y = -50.0f;
+    float eyeHeight = isCrouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
 
-    // Горизонтальное движение — от направления камеры
-    glm::vec3 forward = glm::normalize(glm::vec3(camera.Front.x, 0.0f, camera.Front.z));
-    glm::vec3 right = glm::normalize(glm::vec3(camera.Right.x, 0.0f, camera.Right.z));
+    glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
+    glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
 
-    glm::vec3 moveDir(0.0f);
-    // Движение передаётся через флаги — читаем в Update
-    // (флаги устанавливаются снаружи перед вызовом Update)
-    if (moveForward) moveDir += forward;
-    if (moveBack)    moveDir -= forward;
-    if (moveLeft)    moveDir -= right;
-    if (moveRight)   moveDir += right;
-    
+    if (glm::length(forward) > 0.0001f)
+        forward = glm::normalize(forward);
+    else
+        forward = glm::vec3(0.0f);
+
+    if (glm::length(right) > 0.0001f)
+        right = glm::normalize(right);
+    else
+        right = glm::vec3(0.0f);
+
+    glm::vec3 wishDir(0.0f);
+    if (moveForward) wishDir += forward;
+    if (moveBack)    wishDir -= forward;
+    if (moveLeft)    wishDir -= right;
+    if (moveRight)   wishDir += right;
+
+    if (glm::length(wishDir) > 0.0f)
+        wishDir = glm::normalize(wishDir);
+
     // Скорость зависит от состояния
     float speed = MOVE_SPEED;
     if (isSprinting && !isCrouching) speed = SPRINT_SPEED;
     if (isCrouching)                 speed = CROUCH_SPEED;
 
-    // Высота глаз зависит от приседания
-    float eyeHeight = isCrouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
+    if (isGrounded)
+        coyoteTimer = COYOTE_TIME;
+    else
+        coyoteTimer = std::max(0.0f, coyoteTimer - deltaTime);
 
-    if (glm::length(moveDir) > 0.0f)
-        moveDir = glm::normalize(moveDir);
+    jumpBufferTimer = std::max(0.0f, jumpBufferTimer - deltaTime);
 
-    BlockType feetBlock = world.GetBlock(
-        (int)floor(position.x),
-        (int)floor(position.y),
-        (int)floor(position.z)
-    );
-    bool inWater = (feetBlock == WATER);
-    this->inWater = inWater;
+    if (!inWater && jumpBufferTimer > 0.0f && (isGrounded || coyoteTimer > 0.0f))
+    {
+        velocity.y = JUMP_SPEED;
+        isGrounded = false;
+        coyoteTimer = 0.0f;
+        jumpBufferTimer = 0.0f;
+        maxFallSpeed = 0.0f;
+    }
 
-    float speedMult = inWater ? 0.4f : 1.0f;
-    float gravityMult = inWater ? 0.15f : 1.0f;
+    if (inWater)
+    {
+        // Горизонтальное движение в воде — более вязкое
+        glm::vec2 currentXZ(velocity.x, velocity.z);
+        glm::vec2 targetXZ(wishDir.x * speed * WATER_SPEED_MULT, wishDir.z * speed * WATER_SPEED_MULT);
+
+        float accel = ACCEL_GROUND * 0.45f;
+        float friction = WATER_DRAG;
+
+        if (glm::length(wishDir) > 0.0f)
+        {
+            glm::vec2 deltaV = targetXZ - currentXZ;
+            float maxChange = accel * deltaTime;
+
+            float len = glm::length(deltaV);
+            if (len > maxChange && len > 0.0f)
+                deltaV = deltaV / len * maxChange;
+
+            currentXZ += deltaV;
+        }
+        else
+        {
+            float speed2D = glm::length(currentXZ);
+            float drop = friction * deltaTime;
+            if (speed2D <= drop)
+                currentXZ = glm::vec2(0.0f);
+            else
+                currentXZ -= currentXZ / speed2D * drop;
+        }
+
+        velocity.x = currentXZ.x;
+        velocity.z = currentXZ.y;
+
+        if (swimUpRequested && water.submersion > 0.2f)
+            velocity.y = WATER_MAX_UP_SPEED;
+
+        swimUpRequested = false;
+
+        if (isCrouching)
+            velocity.y -= WATER_SWIM_DOWN_ACCEL * deltaTime;
+
+        // Слабая гравитация в воде
+        velocity.y += GRAVITY * WATER_GRAVITY_MULT * deltaTime;
+
+        // Немного гасим дрожание
+        velocity.y *= 0.985f;
+
+        if (velocity.y > WATER_MAX_UP_SPEED)   velocity.y = WATER_MAX_UP_SPEED;
+        if (velocity.y < WATER_MAX_DOWN_SPEED) velocity.y = WATER_MAX_DOWN_SPEED;
+    }
+    else
+    {
+        velocity.y += GRAVITY * deltaTime;
+        if (velocity.y < -50.0f)
+            velocity.y = -50.0f;
+
+        glm::vec2 currentXZ(velocity.x, velocity.z);
+        glm::vec2 targetXZ(wishDir.x * speed, wishDir.z * speed);
+
+        float accel = isGrounded ? ACCEL_GROUND : ACCEL_AIR;
+        float friction = isGrounded ? FRICTION_GROUND : FRICTION_AIR;
+
+        if (glm::length(wishDir) > 0.0f)
+        {
+            glm::vec2 deltaV = targetXZ - currentXZ;
+            float maxChange = accel * deltaTime;
+
+            float len = glm::length(deltaV);
+            if (len > maxChange && len > 0.0f)
+                deltaV = deltaV / len * maxChange;
+
+            currentXZ += deltaV;
+        }
+        else
+        {
+            float speed2D = glm::length(currentXZ);
+            float drop = friction * deltaTime;
+            if (speed2D <= drop)
+                currentXZ = glm::vec2(0.0f);
+            else
+                currentXZ -= currentXZ / speed2D * drop;
+        }
+
+        velocity.x = currentXZ.x;
+        velocity.z = currentXZ.y;
+    }
+
+    if (velocity.y < 0.0f)
+        maxFallSpeed = std::max(maxFallSpeed, -velocity.y);
 
     glm::vec3 delta;
-    delta.x = moveDir.x * speed * speedMult * deltaTime;
-    delta.z = moveDir.z * speed * speedMult * deltaTime;
-    delta.y = velocity.y * gravityMult * deltaTime;
+    delta.x = velocity.x * deltaTime;
+    delta.z = velocity.z * deltaTime;
+    delta.y = velocity.y * deltaTime;
 
     // Sneak — не падать с края при приседании
     if (isCrouching && isGrounded)
@@ -162,7 +295,11 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
             for (int z = bz1; z <= bz2 && !solidUnderX; z++)
                 if (IsSolid(x, by, z, world)) solidUnderX = true;
 
-        if (!solidUnderX) delta.x = 0.0f;
+        if (!solidUnderX)
+        {
+            delta.x = 0.0f;
+            velocity.x = 0.0f;
+        }
 
         // Проверяем Z
         testPos = position;
@@ -178,15 +315,17 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
             for (int z = bz; z <= bz_2 && !solidUnderZ; z++)
                 if (IsSolid(x, by2, z, world)) solidUnderZ = true;
 
-        if (!solidUnderZ) delta.z = 0.0f;
+        if (!solidUnderZ)
+        {
+            delta.z = 0.0f;
+            velocity.z = 0.0f;
+        }
     }
 
-    // Отслеживаем максимальную скорость падения
-    if (velocity.y < 0.0f)
-        maxFallSpeed = std::max(maxFallSpeed, -velocity.y);
+    bool wasGrounded = isGrounded;
+    MoveAndCollide(delta, world);
 
-    // При приземлении считаем урон
-    if (isGrounded && maxFallSpeed > 0.0f)
+    if (!wasGrounded && isGrounded && !inWater && maxFallSpeed > 0.0f)
     {
         // Урон начинается с падения больше ~4 блоков
         float fallDamage = maxFallSpeed - FALL_DAMAGE_THRESHOLD * 4.0f;
@@ -196,13 +335,14 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     }
 
     // Смерть
+    if (isGrounded)
+        maxFallSpeed = 0.0f;
+
     if (health <= 0.0f)
     {
         health = 0.0f;
         isDead = true;
     }
-
-    MoveAndCollide(delta, world);
 
     // Камера следует за игроком — глаза на высоте EYE_HEIGHT
     camera.Position = position + glm::vec3(0.0f, eyeHeight, 0.0f);
