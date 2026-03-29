@@ -113,7 +113,6 @@ uniform vec3  uCameraPos;       // позиция камеры
 uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
 uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
 uniform bool  uUnderwater;
-uniform bool  uIsWater;
 
 const float TILE_SIZE = 1.0 / 16.0;
 
@@ -553,7 +552,6 @@ int main()
     unsigned int moonColorLoc = glGetUniformLocation(shaderProgram, "uMoonColor");
     unsigned int ambientLoc = glGetUniformLocation(shaderProgram, "uAmbient");
     unsigned int screenSizeLoc = glGetUniformLocation(crosshairProgram, "uScreenSize");
-    unsigned int isWaterLoc = glGetUniformLocation(shaderProgram, "uIsWater");
 
     // Timing / FPS
     double previousTime = 0.0, currentTime = 0.0, timeDifference = 0.0;
@@ -1112,8 +1110,6 @@ int main()
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);
 
-        glUniform1i(isWaterLoc, 0);
-
         for (RenderGroup group : renderOrder)
         {
             // Настройка state под текущую группу
@@ -1130,7 +1126,6 @@ int main()
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glUniform1i(alphaClipLoc, 0);
-                glUniform1i(isWaterLoc, 1);
 
                 if (underwater)
                     glDisable(GL_CULL_FACE); // под водой видим воду с обеих сторон
@@ -1143,7 +1138,6 @@ int main()
             else
             {
                 glDisable(GL_BLEND);
-                glUniform1i(isWaterLoc, 0);
             }
 
 			std::lock_guard<std::mutex> lock(world.chunkMapMutex);
