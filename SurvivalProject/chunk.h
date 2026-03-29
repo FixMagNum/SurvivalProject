@@ -113,7 +113,8 @@ private:
         int tileID, bool flipWinding,
         float ao0, float ao1, float ao2, float ao3,
         int faceId,
-        RenderGroup group);
+        RenderGroup group,
+        bool nudge = false);
 
     // Считает AO для одной вершины (0..3, где 3 = светло)
     int ComputeAO(int side1, int side2, int corner);

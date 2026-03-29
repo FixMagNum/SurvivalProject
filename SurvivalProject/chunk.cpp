@@ -38,15 +38,28 @@ static inline bool IsTransparentGroup(RenderGroup g)
     return g == RenderGroup::Leaves || g == RenderGroup::Water || g == RenderGroup::Glass;
 }
 
-static inline int TransparencyPriority(BlockType b)
+static inline bool TransparentFaceVisible(BlockType cur, BlockType neighbor)
 {
-    switch (b)
-    {
-    case GLASS: return 2;
-    case WATER: return 1;
-    case OAK_LEAVES: return 0;
-    default: return -1;
-    }
+    if (cur == neighbor)
+        return false;
+
+    // Вода + стекло: рисуем у обоих
+    if ((cur == WATER && neighbor == GLASS) ||
+        (cur == GLASS && neighbor == WATER))
+        return true;
+
+    // Листва + вода: рисуем у обоих
+    if ((cur == WATER && neighbor == OAK_LEAVES) ||
+        (cur == OAK_LEAVES && neighbor == WATER))
+        return true;
+
+    // Листва + стекло: рисуем у обоих
+    if ((cur == OAK_LEAVES && neighbor == GLASS) ||
+        (cur == GLASS && neighbor == OAK_LEAVES))
+        return true;
+
+    // По умолчанию для прочих прозрачных пар:
+    return false;
 }
 
 static inline bool FaceVisible(BlockType cur, BlockType neighbor)
@@ -60,21 +73,18 @@ static inline bool FaceVisible(BlockType cur, BlockType neighbor)
     bool curTransparent = IsTransparentGroup(gc);
     bool neighborTransparent = IsTransparentGroup(gn);
 
-    int pc = TransparencyPriority(cur);
-    int pn = TransparencyPriority(neighbor);
-
-    // если текущий блок прозрачный, а сосед НЕ прозрачный - грань не рисуем
+    // прозрачный рядом с непрозрачным
     if (curTransparent && !neighborTransparent)
         return false;
 
+    if (!curTransparent && neighborTransparent)
+        return true;
+
     // оба прозрачные
     if (curTransparent && neighborTransparent)
-    {
-        // разные прозрачные (вода/стекло) - не рисуем
-        return pc < pn;
-    }
+        return TransparentFaceVisible(cur, neighbor);
 
-    // Грань видна, если сосед в другой группе
+    // оба непрозрачные
     return gc != gn;
 }
 
@@ -310,7 +320,8 @@ void Chunk::AddQuad(
     int tileID, bool flipWinding,
     float ao0, float ao1, float ao2, float ao3,
     int faceId,
-    RenderGroup group)
+    RenderGroup group,
+    bool nudge)
 {
     auto& bucket = meshGroups[(size_t)group];
     auto& verts = bucket.vertices;
@@ -341,7 +352,8 @@ void Chunk::AddQuad(
             | ((uint32_t)z << 8)
             | ((uint32_t)(faceId & 7) << 5)
             | (packAO(aoArr[corner]) << 3)
-            | ((uint32_t)(corner & 3) << 1);
+            | ((uint32_t)(corner & 3) << 1)
+            | (nudge ? 1u : 0u);
 
         uint32_t d1 = (uint32_t)(uint8_t)tileID
             | ((uint32_t)(uint8_t)w << 8)
@@ -448,11 +460,26 @@ void Chunk::GenerateMeshData()
         return ComputeAO(s1, s2, c) / 3.0f;
         };
 
+    // Нужно ли сдвигать грань воды? Только боковые грани, только против стекла/листвы
+    auto transparentNudge = [](BlockType cur, BlockType nbr) -> bool {
+        RenderGroup gn = GetRenderGroup(nbr);
+        if (!IsTransparentGroup(gn)) return false;
+
+        // Вода рядом с любым прозрачным (стекло, листва)
+        if (cur == WATER) return true;
+
+        // Стекло рядом с листвой
+        if (cur == GLASS && nbr == OAK_LEAVES) return true;
+
+        return false;
+        };
+
     struct MaskCell
     {
         int tileID = -1;
         RenderGroup group = RenderGroup::Opaque;
         float ao[4] = { 1.f, 1.f, 1.f, 1.f };
+        bool nudge = false;
 
         bool operator==(const MaskCell& o) const
         {
@@ -461,7 +488,8 @@ void Chunk::GenerateMeshData()
                 ao[0] == o.ao[0] &&
                 ao[1] == o.ao[1] &&
                 ao[2] == o.ao[2] &&
-                ao[3] == o.ao[3];
+                ao[3] == o.ao[3] &&
+                nudge == o.nudge;
         }
 
         bool empty() const { return tileID < 0; }
@@ -609,6 +637,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1]  = aoVal(solid(x + 1, y - 1, z), solid(x + 1, y, z + 1), solid(x + 1, y - 1, z + 1));
                     cell.ao[2]  = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z + 1), solid(x + 1, y + 1, z + 1));
                     cell.ao[3]  = aoVal(solid(x + 1, y + 1, z), solid(x + 1, y, z - 1), solid(x + 1, y + 1, z - 1));
+                    cell.nudge = transparentNudge(cur, neighbor);
                 }
                 else cell.tileID = -1;
             }
@@ -644,7 +673,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    2, group);
+                    2, group, ref.nudge);
             }
     }
 
@@ -670,6 +699,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1] = aoVal(solid(x - 1, y - 1, z), solid(x - 1, y, z + 1), solid(x - 1, y - 1, z + 1));
                     cell.ao[2] = aoVal(solid(x - 1, y + 1, z), solid(x - 1, y, z + 1), solid(x - 1, y + 1, z + 1));
                     cell.ao[3] = aoVal(solid(x - 1, y + 1, z), solid(x - 1, y, z - 1), solid(x - 1, y + 1, z - 1));
+                    cell.nudge = transparentNudge(cur, neighbor);
                 }
                 else cell.tileID = -1;
             }
@@ -705,7 +735,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    3, group);
+                    3, group, ref.nudge);
             }
     }
 
@@ -731,6 +761,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1] = aoVal(solid(x + 1, y, z + 1), solid(x, y - 1, z + 1), solid(x + 1, y - 1, z + 1));
                     cell.ao[2] = aoVal(solid(x + 1, y, z + 1), solid(x, y + 1, z + 1), solid(x + 1, y + 1, z + 1));
                     cell.ao[3] = aoVal(solid(x - 1, y, z + 1), solid(x, y + 1, z + 1), solid(x - 1, y + 1, z + 1));
+                    cell.nudge = transparentNudge(cur, neighbor);
                 }
                 else cell.tileID = -1;
             }
@@ -766,7 +797,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    4, group);
+                    4, group, ref.nudge);
             }
     }
 
@@ -792,6 +823,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1] = aoVal(solid(x + 1, y, z - 1), solid(x, y - 1, z - 1), solid(x + 1, y - 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y, z - 1), solid(x, y + 1, z - 1), solid(x + 1, y + 1, z - 1));
                     cell.ao[3] = aoVal(solid(x - 1, y, z - 1), solid(x, y + 1, z - 1), solid(x - 1, y + 1, z - 1));
+                    cell.nudge = transparentNudge(cur, neighbor);
                 }
                 else cell.tileID = -1;
             }
@@ -827,7 +859,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 1, 0), quadH,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    5, group);
+                    5, group, ref.nudge);
             }
     }
 }

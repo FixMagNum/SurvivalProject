@@ -66,11 +66,18 @@ void main()
     uint faceId = (d0 >> 5) & 7u;
     uint ao     = (d0 >> 3) & 3u;
     uint corner = (d0 >> 1) & 3u;
+
+    uint nudge  = d0 & 1u;
+
+    vec3 pos = vec3(px, py, pz);
+
+    // Если nudge — чуть сдвигаем грань воды внутрь (избегаем z-fighting с листвой/стеклом)
+    if (nudge != 0u)
+        pos -= normals[faceId] * 0.001;
+
     uint tileId = d1 & 0xFFu;
     uint sizeU  = (d1 >> 8)  & 0xFFu;
     uint sizeV  = (d1 >> 16) & 0xFFu;
-
-    vec3 pos = vec3(px, py, pz);
 
     gl_Position = projection * view * model * vec4(pos, 1.0);
     FragPos     = (model * vec4(pos, 1.0)).xyz;
