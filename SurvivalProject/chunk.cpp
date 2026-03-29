@@ -517,6 +517,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z - 1), solid(x + 1, y + 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y + 1, z), solid(x, y + 1, z + 1), solid(x + 1, y + 1, z + 1));
                     cell.ao[3] = aoVal(solid(x - 1, y + 1, z), solid(x, y + 1, z + 1), solid(x - 1, y + 1, z + 1));
+                    cell.nudge = transparentNudge(cur, above);
                 }
                 else cell.tileID = -1;
             }
@@ -551,7 +552,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, false,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    0, group);
+                    0, group, ref.nudge);
             }
     }
 
@@ -577,6 +578,7 @@ void Chunk::GenerateMeshData()
                     cell.ao[1] = aoVal(solid(x + 1, y - 1, z), solid(x, y - 1, z - 1), solid(x + 1, y - 1, z - 1));
                     cell.ao[2] = aoVal(solid(x + 1, y - 1, z), solid(x, y - 1, z + 1), solid(x + 1, y - 1, z + 1));
                     cell.ao[3] = aoVal(solid(x - 1, y - 1, z), solid(x, y - 1, z + 1), solid(x - 1, y - 1, z + 1));
+                    cell.nudge = transparentNudge(cur, below);
                 }
                 else cell.tileID = -1;
             }
@@ -611,7 +613,7 @@ void Chunk::GenerateMeshData()
                     glm::vec3(0, 0, 1), dz,
                     ref.tileID, true,
                     ref.ao[0], ref.ao[1], ref.ao[2], ref.ao[3],
-                    1, group);
+                    1, group, ref.nudge);
             }
     }
 
