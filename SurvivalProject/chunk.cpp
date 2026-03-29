@@ -468,7 +468,7 @@ void Chunk::GenerateMeshData()
     };
 
     // +Y (top faces)
-    for (int y = 0; y <= SIZE_Y; y++)
+    for (int y = 0; y < SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
         bool     used[SIZE_X][SIZE_Z];
@@ -528,7 +528,7 @@ void Chunk::GenerateMeshData()
     }
 
     // -Y (bottom faces)
-    for (int y = 0; y <= SIZE_Y; y++)
+    for (int y = 0; y < SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
         bool     used[SIZE_X][SIZE_Z];
@@ -951,13 +951,6 @@ void Chunk::FreeGPU()
     }
 
     state.store(ChunkState::Empty);
-}
-
-void Chunk::Draw()
-{
-    if (indices.empty()) return;
-    glBindVertexArray(VAO);
-    glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_INT, 0);
 }
 
 void Chunk::CheckFence()

@@ -614,7 +614,7 @@ int main()
             player.isCrouching = wantsCrouch;
         }
 
-        bool spaceDown = (!inventory.isOpen) && (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
+        bool spaceDown = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
 
         if (spaceDown && !g_prevSpace)
         {
@@ -1068,7 +1068,7 @@ int main()
 
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(90.0f), g_width / g_height, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 

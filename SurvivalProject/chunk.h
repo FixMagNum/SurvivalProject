@@ -94,8 +94,6 @@ public:
     // Для rebuild после break/place — тоже только из главного потока
     void BuildMesh();
 
-    void Draw();
-
     void DrawGroup(RenderGroup group, const glm::vec3& cameraPos);
 
     void CheckFence();
