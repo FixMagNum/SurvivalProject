@@ -499,23 +499,14 @@ int main()
     hotbar.slots[4] = OAK_LOG, hotbar.counts[4] = 64;
     hotbar.slots[5] = COBBLESTONE, hotbar.counts[5] = 64;
     hotbar.slots[6] = POOP, hotbar.counts[6] = 64;
+    hotbar.slots[7] = BASALT, hotbar.counts[7] = 64;
 
     // Мир
     World world;
     Frustum frustum;
 
-    // Запускаем начальную генерацию через Update
+    // Запускаем начальную генерацию спавн-области, но не блокируем кадр
     world.Update(0, 7, 0, camera.Front); // Y=7 примерно соответствует высоте 120 (120/16=7.5)
-
-    // Ждём пока чанк спавна сгенерируется
-    while (true)
-    {
-        world.UploadPendingChunks(16);
-        std::lock_guard<std::mutex> lock(world.chunkMapMutex);
-        auto it = world.chunkMap.find({ 0, 7, 0 }); // Y=7 соответствует высоте ~112-128
-        if (it != world.chunkMap.end() &&
-            it->second->state.load() == ChunkState::Uploaded) break;
-    }
 
     // Находим поверхность в точке спавна
     int spawnY = 150;

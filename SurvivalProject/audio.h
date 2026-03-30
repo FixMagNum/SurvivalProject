@@ -3,6 +3,7 @@
 #include <AL/alc.h>
 #include <unordered_map>
 #include <string>
+#include <vector>
 #include "block.h"
 
 struct SoundSet
@@ -37,4 +38,6 @@ private:
     static int currentSource;
 
     static std::unordered_map<BlockType, SoundSet> blockSounds;
+
+    static std::vector<ALuint> LoadWavsFromFolder(const std::string& folder);
 };

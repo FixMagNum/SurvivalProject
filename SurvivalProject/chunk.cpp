@@ -21,16 +21,17 @@ BlockData blockDatabase[] =
     { Tile(2,0),  Tile(0,0),  Tile(1,0) },    // GRASS
     { Tile(0,0),  Tile(0,0),  Tile(0,0) },    // DIRT
     { Tile(3,0),  Tile(3,0),  Tile(3,0) },    // STONE
-    { Tile(5,0),  Tile(5,0),  Tile(4,0) },    // OAK_PLANKS
-    { Tile(6,0),  Tile(6,0),  Tile(6,0) },    // GLASS
-    { Tile(7,0),  Tile(7,0),  Tile(7,0) },    // WATER
-	{ Tile(9,0),  Tile(9,0),  Tile(8,0) },    // OAK_LOG
-    { Tile(10,0), Tile(10,0), Tile(10,0) },   // OAK_LEAVES
-    { Tile(11,0), Tile(11,0), Tile(11,0) },   // SAND
-	{ Tile(12,0), Tile(12,0), Tile(12,0) },   // SNOW
-    { Tile(13,0), Tile(13,0), Tile(13,0) },   // BEDROCK
-    { Tile(14,0), Tile(14,0), Tile(14,0) },   // COBBLESTONE
-    { Tile(15,0), Tile(15,0), Tile(15,0) },   // POOP
+    { Tile(4,0),  Tile(4,0),  Tile(4,0) },    // OAK_PLANKS
+    { Tile(5,0),  Tile(5,0),  Tile(5,0) },    // GLASS
+    { Tile(6,0),  Tile(6,0),  Tile(6,0) },    // WATER
+	{ Tile(8,0),  Tile(8,0),  Tile(7,0) },    // OAK_LOG
+    { Tile(9,0),  Tile(9,0),  Tile(9,0) },    // OAK_LEAVES
+    { Tile(10,0), Tile(10,0), Tile(10,0) },   // SAND
+	{ Tile(11,0), Tile(11,0), Tile(11,0) },   // SNOW
+    { Tile(12,0), Tile(12,0), Tile(12,0) },   // BEDROCK
+    { Tile(13,0), Tile(13,0), Tile(13,0) },   // COBBLESTONE
+    { Tile(14,0), Tile(14,0), Tile(14,0) },   // POOP
+	{ Tile(15,0), Tile(15,0), Tile(15,0) },   // BASALT
 };
 
 static inline bool IsTransparentGroup(RenderGroup g)
@@ -137,6 +138,18 @@ void Chunk::Generate()
     treeNoise.SetFrequency(0.1f);
     treeNoise.SetSeed(42);
 
+    // Шум для бедрока
+    FastNoiseLite bedrockNoise;
+    bedrockNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    bedrockNoise.SetFrequency(0.08f);
+    bedrockNoise.SetSeed(777);
+
+    // Шум для базальта
+    FastNoiseLite basaltNoise;
+    basaltNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    basaltNoise.SetFrequency(0.03f);   // подбери по вкусу
+    basaltNoise.SetSeed(5555);
+
     int worldChunkY = chunkPos.y * SIZE_Y; // нижняя граница чанка в мировых координатах
 
     for (int x = 0; x < SIZE_X; x++)
@@ -168,6 +181,12 @@ void Chunk::Generate()
             else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);  // средний
             else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);  // высокий - MOUNTAINS
 
+            float bedrockN = bedrockNoise.GetNoise(worldX, worldZ);
+            int bedrockThickness = 1 + (int)std::floor(((bedrockN + 1.0f) * 0.5f) * 4.0f); // 1..5
+
+            float basaltN = basaltNoise.GetNoise(worldX, worldZ);
+            int basaltThickness = 50 + (int)std::floor(((basaltN + 1.0f) * 0.5f) * 10.0f); // 50..60
+
             surfaceY = std::clamp(surfaceY, 1, 500);
 
             // Заполняем блоки
@@ -177,18 +196,12 @@ void Chunk::Generate()
 
                 BlockType block = AIR;
 
-                if (worldY == 0)
+                if (worldY <= bedrockThickness - 1)
                     block = BEDROCK;
+                else if (worldY <= bedrockThickness + basaltThickness - 1)
+                    block = BASALT;
                 else if (worldY < surfaceY - 3)
-                {
                     block = STONE;
-
-                    // Пещеры
-                    float n1 = caveNoise.GetNoise(worldX, (float)worldY, worldZ);
-                    float n2 = caveNoise2.GetNoise(worldX, (float)worldY * 0.5f, worldZ);
-                    if (n1 * n1 + n2 * n2 < 0.006f)
-                        block = AIR;
-                }
                 else if (worldY < surfaceY)
                 {
                     if (biome == DESERT) block = SAND;
@@ -213,6 +226,63 @@ void Chunk::Generate()
                 if (worldY == surfaceY && surfaceY < 110)
                     if (blocks[x][y][z] == GRASS)
                         blocks[x][y][z] = DIRT;
+            }
+        }
+    }
+
+    // Пещеры — отдельный проход после генерации всех блоков
+    for (int x = 0; x < SIZE_X; x++)
+    {
+        for (int z = 0; z < SIZE_Z; z++)
+        {
+            float worldX = x + chunkPos.x * SIZE_X;
+            float worldZ = z + chunkPos.z * SIZE_Z;
+
+            float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
+            float noiseVal = noise.GetNoise(worldX, worldZ);
+
+            enum Biome { DESERT, PLAINS, FOREST, MOUNTAINS };
+            Biome biome;
+            if (biomeVal < -0.3f) biome = DESERT;
+            else if (biomeVal < 0.3f) biome = PLAINS;
+            else if (biomeVal < 0.6f) biome = FOREST;
+            else                       biome = MOUNTAINS;
+
+            int surfaceY;
+            if (biome == DESERT)   surfaceY = (int)(108.0f + noiseVal * 8.0f);
+            else if (biome == PLAINS)   surfaceY = (int)(120.0f + noiseVal * 20.0f);
+            else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);
+            else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);
+
+            float bedrockN = bedrockNoise.GetNoise(worldX, worldZ);
+            int bedrockThickness = 1 + (int)std::floor(((bedrockN + 1.0f) * 0.5f) * 4.0f); // 1..5
+
+            float basaltN = basaltNoise.GetNoise(worldX, worldZ);
+            int basaltThickness = 50 + (int)std::floor(((basaltN + 1.0f) * 0.5f) * 10.0f); // 50..60
+
+            surfaceY = std::clamp(surfaceY, 1, 500);
+
+            for (int y = 0; y < SIZE_Y; y++)
+            {
+                int worldY = worldChunkY + y;
+
+                if (worldY <= bedrockThickness + basaltThickness - 1)
+                    continue;
+
+                if (worldY > surfaceY)
+                    continue;
+
+                BlockType& block = blocks[x][y][z];
+                if (block == AIR || block == WATER)
+                    continue;
+
+                float n1 = caveNoise.GetNoise(worldX, (float)worldY, worldZ);
+                float n2 = caveNoise2.GetNoise(worldX, (float)worldY * 0.5f, worldZ);
+                float caveValue = n1 * n1 + n2 * n2;
+
+                float threshold = (worldY >= surfaceY - 2) ? 0.012f : 0.006f;
+                if (caveValue < threshold)
+                    block = AIR;
             }
         }
     }

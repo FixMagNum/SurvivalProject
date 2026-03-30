@@ -29,17 +29,18 @@ static int GetTopTile(BlockType type)
     case GRASS:       return tile(2, 0);
     case DIRT:        return tile(0, 0);
     case STONE:       return tile(3, 0);
-    case OAK_PLANKS:  return tile(5, 0);
-    case GLASS:       return tile(6, 0);
-    case WATER:       return tile(7, 0);
-    case OAK_LOG:     return tile(8, 0);
-    case OAK_LEAVES:  return tile(10, 0);
-    case SAND:        return tile(11, 0);
-    case SNOW:        return tile(12, 0);
-    case BEDROCK:     return tile(13, 0);
-    case COBBLESTONE: return tile(14, 0);
-    case POOP:        return tile(15, 0);
-    default:         return -1;
+    case OAK_PLANKS:  return tile(4, 0);
+    case GLASS:       return tile(5, 0);
+    case WATER:       return tile(6, 0);
+    case OAK_LOG:     return tile(7, 0);
+    case OAK_LEAVES:  return tile(9, 0);
+    case SAND:        return tile(10, 0);
+    case SNOW:        return tile(11, 0);
+    case BEDROCK:     return tile(12, 0);
+    case COBBLESTONE: return tile(13, 0);
+    case POOP:        return tile(14, 0);
+    case BASALT:      return tile(15, 0);
+    default:          return -1;
     }
 }
 

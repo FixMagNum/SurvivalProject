@@ -17,6 +17,7 @@ enum BlockType
 	BEDROCK,
 	COBBLESTONE,
 	POOP,
+	BASALT,
 };
 
 enum class RenderGroup : uint8_t

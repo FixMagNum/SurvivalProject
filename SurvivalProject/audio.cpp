@@ -2,12 +2,49 @@
 #include <fstream>
 #include <vector>
 #include <iostream>
+#include <filesystem>
+#include <algorithm>
+
+namespace fs = std::filesystem;
 
 ALCdevice* Audio::device = nullptr;
 ALCcontext* Audio::context = nullptr;
 ALuint Audio::sources[MAX_SOURCES];
 int Audio::currentSource = 0;
 std::unordered_map<BlockType, SoundSet> Audio::blockSounds;
+
+std::vector<ALuint> Audio::LoadWavsFromFolder(const std::string& folder)
+{
+    std::vector<ALuint> result;
+
+    if (!fs::exists(folder) || !fs::is_directory(folder))
+        return result;
+
+    std::vector<fs::path> files;
+    for (const auto& entry : fs::directory_iterator(folder))
+    {
+        if (!entry.is_regular_file())
+            continue;
+
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+            [](unsigned char c) { return (unsigned char)std::tolower(c); });
+
+        if (ext == ".wav")
+            files.push_back(entry.path());
+    }
+
+    std::sort(files.begin(), files.end());
+
+    for (const auto& file : files)
+    {
+        ALuint buffer = LoadWav(file.string());
+        if (buffer != 0)
+            result.push_back(buffer);
+    }
+
+    return result;
+}
 
 void Audio::Init()
 {
@@ -20,9 +57,23 @@ void Audio::Init()
 
 void Audio::Shutdown()
 {
+    // удалить все буферы звуков
+    for (auto& [type, set] : blockSounds)
+    {
+        if (!set.breakSounds.empty())
+            alDeleteBuffers((ALsizei)set.breakSounds.size(), set.breakSounds.data());
+    }
+    blockSounds.clear();
+
     alDeleteSources(MAX_SOURCES, sources);
-    alcDestroyContext(context);
-    alcCloseDevice(device);
+
+    alcMakeContextCurrent(nullptr);
+    if (context) alcDestroyContext(context);
+    if (device) alcCloseDevice(device);
+
+    context = nullptr;
+    device = nullptr;
+    currentSource = 0;
 }
 
 void Audio::SetListener(float x, float y, float z,
@@ -92,65 +143,19 @@ void Audio::Play3D(ALuint buffer, float x, float y, float z)
 
 void Audio::LoadBlockSounds()
 {
-    // GRASS
-    blockSounds[GRASS].breakSounds = {
-        LoadWav("Assets/sounds/grass/break1.wav"),
-        LoadWav("Assets/sounds/grass/break2.wav")
-    };
-
-    // DIRT
-    blockSounds[DIRT] = blockSounds[GRASS];
-
-    // STONE
-    blockSounds[STONE].breakSounds = {
-        LoadWav("Assets/sounds/stone/break1.wav"),
-        LoadWav("Assets/sounds/stone/break2.wav"),
-        LoadWav("Assets/sounds/stone/break3.wav"),
-        LoadWav("Assets/sounds/stone/break4.wav")
-    };
-
-    // WOOD (planks + log)
-    blockSounds[OAK_PLANKS].breakSounds = {
-        LoadWav("Assets/sounds/wood/break1.wav"),
-        LoadWav("Assets/sounds/wood/break2.wav")
-    };
-    blockSounds[OAK_LOG] = blockSounds[OAK_PLANKS];
-
-    // GLASS
-    blockSounds[GLASS].breakSounds = {
-        LoadWav("Assets/sounds/glass/break1.wav"),
-        LoadWav("Assets/sounds/glass/break2.wav"),
-        LoadWav("Assets/sounds/glass/break3.wav")
-    };
-
-    // SAND
-    blockSounds[SAND].breakSounds = {
-        LoadWav("Assets/sounds/sand/break1.wav"),
-        LoadWav("Assets/sounds/sand/break2.wav"),
-        LoadWav("Assets/sounds/sand/break3.wav"),
-        LoadWav("Assets/sounds/sand/break4.wav")
-    };
-
-    // SNOW
-    blockSounds[SNOW].breakSounds = {
-        LoadWav("Assets/sounds/snow/break1.wav"),
-        LoadWav("Assets/sounds/snow/break2.wav"),
-        LoadWav("Assets/sounds/snow/break3.wav"),
-        LoadWav("Assets/sounds/snow/break4.wav")
-    };
-
-    // COBBLESTONE = stone
-    blockSounds[COBBLESTONE] = blockSounds[STONE];
-
-    // OAK_LEAVES
-    blockSounds[OAK_LEAVES].breakSounds = {
-        LoadWav("Assets/sounds/plant/break1.wav")
-    };
-
-    // POOP
-    blockSounds[POOP].breakSounds = {
-        LoadWav("Assets/sounds/poop/break1.wav")
-    };
+    blockSounds[GRASS].breakSounds       = LoadWavsFromFolder("Assets/sounds/grass");
+    blockSounds[DIRT].breakSounds        = LoadWavsFromFolder("Assets/sounds/dirt");
+    blockSounds[STONE].breakSounds       = LoadWavsFromFolder("Assets/sounds/stone");
+    blockSounds[OAK_PLANKS].breakSounds  = LoadWavsFromFolder("Assets/sounds/plank");
+    blockSounds[OAK_LOG].breakSounds     = LoadWavsFromFolder("Assets/sounds/log");
+    blockSounds[GLASS].breakSounds       = LoadWavsFromFolder("Assets/sounds/glass");
+    blockSounds[SAND].breakSounds        = LoadWavsFromFolder("Assets/sounds/sand");
+    blockSounds[SNOW].breakSounds        = LoadWavsFromFolder("Assets/sounds/snow");
+    blockSounds[COBBLESTONE].breakSounds = LoadWavsFromFolder("Assets/sounds/cobblestone");
+    blockSounds[BASALT].breakSounds      = LoadWavsFromFolder("Assets/sounds/basalt");
+    blockSounds[BEDROCK].breakSounds     = LoadWavsFromFolder("Assets/sounds/bedrock");
+    blockSounds[OAK_LEAVES].breakSounds  = LoadWavsFromFolder("Assets/sounds/plant");
+    blockSounds[POOP].breakSounds        = LoadWavsFromFolder("Assets/sounds/poop");
 }
 
 void Audio::PlayBlockBreak(BlockType type, float x, float y, float z)
