@@ -147,7 +147,7 @@ void Chunk::Generate()
     // Шум для базальта
     FastNoiseLite basaltNoise;
     basaltNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
-    basaltNoise.SetFrequency(0.03f);   // подбери по вкусу
+    basaltNoise.SetFrequency(0.03f);
     basaltNoise.SetSeed(5555);
 
     int worldChunkY = chunkPos.y * SIZE_Y; // нижняя граница чанка в мировых координатах
