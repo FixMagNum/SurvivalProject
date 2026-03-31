@@ -484,7 +484,7 @@ int main()
 
     Audio::Init();
     Audio::LoadBlockSounds();
-    ALuint placeSound = Audio::LoadWav("Assets/sounds/place.wav");
+    ALuint placeSound = Audio::LoadOgg("Assets/sounds/place.ogg");
 
     hotbar.Init(textureID);
     inventory.Init(textureID);

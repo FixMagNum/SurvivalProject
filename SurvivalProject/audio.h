@@ -18,7 +18,7 @@ public:
     static void Init();
     static void Shutdown();
 
-    static ALuint LoadWav(const std::string& path);
+    static ALuint LoadOgg(const std::string& path);
     static void Play3D(ALuint buffer, float x, float y, float z);
 
     static void LoadBlockSounds();
@@ -39,5 +39,5 @@ private:
 
     static std::unordered_map<BlockType, SoundSet> blockSounds;
 
-    static std::vector<ALuint> LoadWavsFromFolder(const std::string& folder);
+    static std::vector<ALuint> LoadOggsFromFolder(const std::string& folder);
 };

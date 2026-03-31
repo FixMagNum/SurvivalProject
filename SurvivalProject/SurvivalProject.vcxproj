@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;D:\Libraries\stb_vorbis\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -123,7 +123,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\glfw-3.4\include\;D:\Libraries\glad\include\;D:\Libraries\glm\;D:\Libraries\stb\include\stb\;D:\Libraries\FastNoiseLite\include\;D:\Libraries\imgui-1.92.6\;D:\Libraries\imgui-1.92.6\backends\;D:\Libraries\openal-soft-1.25.1\include\;D:\Libraries\stb_vorbis\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

@@ -4,6 +4,9 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include "stb_vorbis.c"
 
 namespace fs = std::filesystem;
 
@@ -13,7 +16,7 @@ ALuint Audio::sources[MAX_SOURCES];
 int Audio::currentSource = 0;
 std::unordered_map<BlockType, SoundSet> Audio::blockSounds;
 
-std::vector<ALuint> Audio::LoadWavsFromFolder(const std::string& folder)
+std::vector<ALuint> Audio::LoadOggsFromFolder(const std::string& folder)
 {
     std::vector<ALuint> result;
 
@@ -28,9 +31,9 @@ std::vector<ALuint> Audio::LoadWavsFromFolder(const std::string& folder)
 
         auto ext = entry.path().extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(),
-            [](unsigned char c) { return (unsigned char)std::tolower(c); });
+            [](unsigned char c) { return (char)std::tolower(c); });
 
-        if (ext == ".wav")
+        if (ext == ".ogg")
             files.push_back(entry.path());
     }
 
@@ -38,7 +41,7 @@ std::vector<ALuint> Audio::LoadWavsFromFolder(const std::string& folder)
 
     for (const auto& file : files)
     {
-        ALuint buffer = LoadWav(file.string());
+        ALuint buffer = LoadOgg(file.string());
         if (buffer != 0)
             result.push_back(buffer);
     }
@@ -62,7 +65,11 @@ void Audio::Shutdown()
     {
         if (!set.breakSounds.empty())
             alDeleteBuffers((ALsizei)set.breakSounds.size(), set.breakSounds.data());
+
+        if (!set.placeSounds.empty())
+            alDeleteBuffers((ALsizei)set.placeSounds.size(), set.placeSounds.data());
     }
+
     blockSounds.clear();
 
     alDeleteSources(MAX_SOURCES, sources);
@@ -86,38 +93,30 @@ void Audio::SetListener(float x, float y, float z,
     alListenerfv(AL_ORIENTATION, ori);
 }
 
-// ПРОСТОЙ WAV LOADER (PCM only)
-ALuint Audio::LoadWav(const std::string& path)
+ALuint Audio::LoadOgg(const std::string& path)
 {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return 0;
+    int channels = 0;
+    int sampleRate = 0;
+    short* output = nullptr;
 
-    file.seekg(22);
-    short channels;
-    file.read((char*)&channels, 2);
-
-    int sampleRate;
-    file.read((char*)&sampleRate, 4);
-
-    file.seekg(34);
-    short bitsPerSample;
-    file.read((char*)&bitsPerSample, 2);
-
-    file.seekg(40);
-    int dataSize;
-    file.read((char*)&dataSize, 4);
-
-    std::vector<char> data(dataSize);
-    file.read(data.data(), dataSize);
+    int samples = stb_vorbis_decode_filename(path.c_str(), &channels, &sampleRate, &output);
+    if (samples < 0 || !output)
+        return 0;
 
     ALenum format = 0;
-    if (channels == 1 && bitsPerSample == 16) format = AL_FORMAT_MONO16;
-    if (channels == 2 && bitsPerSample == 16) format = AL_FORMAT_STEREO16;
+    if (channels == 1) format = AL_FORMAT_MONO16;
+    else if (channels == 2) format = AL_FORMAT_STEREO16;
+    else
+    {
+        std::free(output);
+        return 0;
+    }
 
     ALuint buffer;
     alGenBuffers(1, &buffer);
-    alBufferData(buffer, format, data.data(), dataSize, sampleRate);
+    alBufferData(buffer, format, output, samples * channels * (ALsizei)sizeof(short), sampleRate);
 
+    std::free(output);
     return buffer;
 }
 
@@ -129,8 +128,7 @@ void Audio::Play3D(ALuint buffer, float x, float y, float z)
     alSourcei(src, AL_BUFFER, buffer);
     alSource3f(src, AL_POSITION, x, y, z);
 
-    //float pitch = 0.9f + (rand() % 20) / 100.0f;
-    float pitch = 1.0f;
+    float pitch = 0.9f + (rand() % 20) / 100.0f;
     alSourcef(src, AL_PITCH, pitch);
 
     alSourcef(src, AL_REFERENCE_DISTANCE, 2.0f);
@@ -143,19 +141,19 @@ void Audio::Play3D(ALuint buffer, float x, float y, float z)
 
 void Audio::LoadBlockSounds()
 {
-    blockSounds[GRASS].breakSounds       = LoadWavsFromFolder("Assets/sounds/grass");
-    blockSounds[DIRT].breakSounds        = LoadWavsFromFolder("Assets/sounds/dirt");
-    blockSounds[STONE].breakSounds       = LoadWavsFromFolder("Assets/sounds/stone");
-    blockSounds[OAK_PLANKS].breakSounds  = LoadWavsFromFolder("Assets/sounds/plank");
-    blockSounds[OAK_LOG].breakSounds     = LoadWavsFromFolder("Assets/sounds/log");
-    blockSounds[GLASS].breakSounds       = LoadWavsFromFolder("Assets/sounds/glass");
-    blockSounds[SAND].breakSounds        = LoadWavsFromFolder("Assets/sounds/sand");
-    blockSounds[SNOW].breakSounds        = LoadWavsFromFolder("Assets/sounds/snow");
-    blockSounds[COBBLESTONE].breakSounds = LoadWavsFromFolder("Assets/sounds/cobblestone");
-    blockSounds[BASALT].breakSounds      = LoadWavsFromFolder("Assets/sounds/basalt");
-    blockSounds[BEDROCK].breakSounds     = LoadWavsFromFolder("Assets/sounds/bedrock");
-    blockSounds[OAK_LEAVES].breakSounds  = LoadWavsFromFolder("Assets/sounds/plant");
-    blockSounds[POOP].breakSounds        = LoadWavsFromFolder("Assets/sounds/poop");
+    blockSounds[GRASS].breakSounds       = LoadOggsFromFolder("Assets/sounds/grass");
+    blockSounds[DIRT].breakSounds        = LoadOggsFromFolder("Assets/sounds/dirt");
+    blockSounds[STONE].breakSounds       = LoadOggsFromFolder("Assets/sounds/stone");
+    blockSounds[OAK_PLANKS].breakSounds  = LoadOggsFromFolder("Assets/sounds/plank");
+    blockSounds[OAK_LOG].breakSounds     = LoadOggsFromFolder("Assets/sounds/log");
+    blockSounds[GLASS].breakSounds       = LoadOggsFromFolder("Assets/sounds/glass");
+    blockSounds[SAND].breakSounds        = LoadOggsFromFolder("Assets/sounds/sand");
+    blockSounds[SNOW].breakSounds        = LoadOggsFromFolder("Assets/sounds/snow");
+    blockSounds[COBBLESTONE].breakSounds = LoadOggsFromFolder("Assets/sounds/cobblestone");
+    blockSounds[BASALT].breakSounds      = LoadOggsFromFolder("Assets/sounds/basalt");
+    blockSounds[BEDROCK].breakSounds     = LoadOggsFromFolder("Assets/sounds/bedrock");
+    blockSounds[OAK_LEAVES].breakSounds  = LoadOggsFromFolder("Assets/sounds/plant");
+    blockSounds[POOP].breakSounds        = LoadOggsFromFolder("Assets/sounds/poop");
 }
 
 void Audio::PlayBlockBreak(BlockType type, float x, float y, float z)
