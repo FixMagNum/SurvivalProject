@@ -257,16 +257,13 @@ void Chunk::Generate()
             float bedrockN = bedrockNoise.GetNoise(worldX, worldZ);
             int bedrockThickness = 1 + (int)std::floor(((bedrockN + 1.0f) * 0.5f) * 4.0f); // 1..5
 
-            float basaltN = basaltNoise.GetNoise(worldX, worldZ);
-            int basaltThickness = 50 + (int)std::floor(((basaltN + 1.0f) * 0.5f) * 10.0f); // 50..60
-
             surfaceY = std::clamp(surfaceY, 1, 500);
 
             for (int y = 0; y < SIZE_Y; y++)
             {
                 int worldY = worldChunkY + y;
 
-                if (worldY <= bedrockThickness + basaltThickness - 1)
+                if (worldY <= bedrockThickness - 1)
                     continue;
 
                 if (worldY > surfaceY)
@@ -283,6 +280,55 @@ void Chunk::Generate()
                 float threshold = (worldY >= surfaceY - 2) ? 0.012f : 0.006f;
                 if (caveValue < threshold)
                     block = AIR;
+            }
+        }
+    }
+
+    for (int x = 0; x < SIZE_X; x++)
+    {
+        for (int z = 0; z < SIZE_Z; z++)
+        {
+            float worldX = x + chunkPos.x * SIZE_X;
+            float worldZ = z + chunkPos.z * SIZE_Z;
+
+            float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
+            float noiseVal = noise.GetNoise(worldX, worldZ);
+
+            enum Biome { DESERT, PLAINS, FOREST, MOUNTAINS };
+            Biome biome;
+            if (biomeVal < -0.3f) biome = DESERT;
+            else if (biomeVal < 0.3f) biome = PLAINS;
+            else if (biomeVal < 0.6f) biome = FOREST;
+            else                       biome = MOUNTAINS;
+
+            int surfaceY;
+            if (biome == DESERT)   surfaceY = (int)(108.0f + noiseVal * 8.0f);
+            else if (biome == PLAINS)   surfaceY = (int)(120.0f + noiseVal * 20.0f);
+            else if (biome == FOREST)   surfaceY = (int)(120.0f + noiseVal * 25.0f);
+            else                        surfaceY = (int)(140.0f + noiseVal * 60.0f);
+
+            surfaceY = std::clamp(surfaceY, 1, 500);
+
+            int localSurface = surfaceY - worldChunkY;
+            if (localSurface < 0 || localSurface >= SIZE_Y)
+                continue;
+
+            // Если поверхность вскрыта пещерой, делаем верхний блок травой
+            if (biome != DESERT && blocks[x][localSurface][z] != AIR)
+            {
+                if (blocks[x][localSurface][z] == DIRT)
+                    blocks[x][localSurface][z] = GRASS;
+            }
+            else if (biome != DESERT)
+            {
+                // Если поверхность прорезана, ищем первый твердый блок ниже и делаем его травой
+                for (int y = localSurface - 1; y >= 0; y--)
+                {
+                    if (blocks[x][y][z] == AIR) continue;
+                    if (blocks[x][y][z] == DIRT)
+                        blocks[x][y][z] = GRASS;
+                    break;
+                }
             }
         }
     }

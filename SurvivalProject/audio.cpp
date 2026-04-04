@@ -16,6 +16,8 @@ ALuint Audio::sources[MAX_SOURCES];
 int Audio::currentSource = 0;
 std::unordered_map<BlockType, SoundSet> Audio::blockSounds;
 
+PlayerSoundSet Audio::playerSounds;
+
 std::vector<ALuint> Audio::LoadOggsFromFolder(const std::string& folder)
 {
     std::vector<ALuint> result;
@@ -72,6 +74,10 @@ void Audio::Shutdown()
 
     blockSounds.clear();
 
+    if (!playerSounds.hurtSounds.empty())
+        alDeleteBuffers((ALsizei)playerSounds.hurtSounds.size(),
+            playerSounds.hurtSounds.data());
+
     alDeleteSources(MAX_SOURCES, sources);
 
     alcMakeContextCurrent(nullptr);
@@ -126,6 +132,8 @@ void Audio::Play3D(ALuint buffer, float x, float y, float z)
     currentSource = (currentSource + 1) % MAX_SOURCES;
 
     alSourcei(src, AL_BUFFER, buffer);
+    alSourcei(src, AL_SOURCE_RELATIVE, AL_FALSE);
+    alSourcef(src, AL_ROLLOFF_FACTOR, 1.0f);
     alSource3f(src, AL_POSITION, x, y, z);
 
     float pitch = 0.9f + (rand() % 20) / 100.0f;
@@ -139,8 +147,26 @@ void Audio::Play3D(ALuint buffer, float x, float y, float z)
     alSourcePlay(src);
 }
 
-void Audio::LoadBlockSounds()
+void Audio::Play2D(ALuint buffer)
 {
+    ALuint src = sources[currentSource];
+    currentSource = (currentSource + 1) % MAX_SOURCES;
+
+    alSourcei(src, AL_BUFFER, buffer);
+    alSourcei(src, AL_SOURCE_RELATIVE, AL_TRUE);  // координаты относительно слушателя
+    alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f); // прямо в центре головы
+
+    float pitch = 0.9f + (rand() % 20) / 100.0f;
+    alSourcef(src, AL_PITCH, pitch);
+    alSourcef(src, AL_ROLLOFF_FACTOR, 0.0f); // отключаем затухание по расстоянию
+    alSourcef(src, AL_GAIN, 1.0f);
+
+    alSourcePlay(src);
+}
+
+void Audio::LoadSounds()
+{
+    // Blocks
     blockSounds[GRASS].breakSounds       = LoadOggsFromFolder("Assets/sounds/grass");
     blockSounds[DIRT].breakSounds        = LoadOggsFromFolder("Assets/sounds/dirt");
     blockSounds[STONE].breakSounds       = LoadOggsFromFolder("Assets/sounds/stone");
@@ -154,6 +180,9 @@ void Audio::LoadBlockSounds()
     blockSounds[BEDROCK].breakSounds     = LoadOggsFromFolder("Assets/sounds/bedrock");
     blockSounds[OAK_LEAVES].breakSounds  = LoadOggsFromFolder("Assets/sounds/plant");
     blockSounds[POOP].breakSounds        = LoadOggsFromFolder("Assets/sounds/poop");
+
+    // Player
+    playerSounds.hurtSounds = LoadOggsFromFolder("Assets/sounds/player/hurt");
 }
 
 void Audio::PlayBlockBreak(BlockType type, float x, float y, float z)
@@ -166,4 +195,12 @@ void Audio::PlayBlockBreak(BlockType type, float x, float y, float z)
 
     int index = rand() % sounds.size();
     Play3D(sounds[index], x, y, z);
+}
+
+void Audio::PlayPlayerHurt()
+{
+    auto& sounds = playerSounds.hurtSounds;
+    if (sounds.empty()) return;
+    int index = rand() % sounds.size();
+    Play2D(sounds[index]);
 }

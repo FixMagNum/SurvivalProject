@@ -83,6 +83,8 @@ public:
     float coyoteTimer = 0.0f;
     float jumpBufferTimer = 0.0f;
 
+    float prevHealth = MAX_HEALTH; // здоровье на прошлом кадре
+
 private:
     // Двигаем по одной оси и сразу резолвим коллизии
     void MoveAndCollide(glm::vec3 delta, World& world);

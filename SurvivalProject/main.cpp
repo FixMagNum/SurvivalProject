@@ -483,7 +483,7 @@ int main()
     stbi_image_free(data);
 
     Audio::Init();
-    Audio::LoadBlockSounds();
+    Audio::LoadSounds();
     ALuint placeSound = Audio::LoadOgg("Assets/sounds/place.ogg");
 
     hotbar.Init(textureID);
@@ -856,7 +856,7 @@ int main()
 
         // ImGui оверлей со статистикой
         ImGui::SetNextWindowPos(ImVec2(10.f, 10.f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(210.f, 0.f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(0.f, 0.f), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.45f);
 
         ImGuiWindowFlags overlayFlags =
@@ -872,7 +872,10 @@ int main()
         ImGui::Separator();
         ImGui::Text("Visible chunks: %d", lastVisibleChunks);
         ImGui::Text("Total chunks: %d", (int)world.chunkMap.size());
+        ImGui::Separator();
         ImGui::Text("Time: %.2f", g_timeOfDay);
+        ImGui::Separator();
+        ImGui::Text("XYZ: %.3f / %.3f / %.3f", player.position.x, player.position.y, player.position.z);
         ImGui::End();
 
         // Счётчики в хотбаре

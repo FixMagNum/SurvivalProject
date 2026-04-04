@@ -12,6 +12,11 @@ struct SoundSet
     std::vector<ALuint> placeSounds;
 };
 
+struct PlayerSoundSet
+{
+    std::vector<ALuint> hurtSounds;
+};
+
 class Audio
 {
 public:
@@ -20,14 +25,17 @@ public:
 
     static ALuint LoadOgg(const std::string& path);
     static void Play3D(ALuint buffer, float x, float y, float z);
+    static void Play2D(ALuint buffer);
 
-    static void LoadBlockSounds();
+    static void LoadSounds();
 
     static void PlayBlockBreak(BlockType type, float x, float y, float z);
 
     static void SetListener(float x, float y, float z,
         float fx, float fy, float fz,
         float ux, float uy, float uz);
+
+    static void PlayPlayerHurt();
 
 private:
     static ALCdevice* device;
@@ -40,4 +48,6 @@ private:
     static std::unordered_map<BlockType, SoundSet> blockSounds;
 
     static std::vector<ALuint> LoadOggsFromFolder(const std::string& folder);
+
+    static PlayerSoundSet playerSounds;
 };

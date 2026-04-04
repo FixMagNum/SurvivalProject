@@ -1,6 +1,7 @@
 #include "player.h"
 #include <cmath>
 #include <algorithm>
+#include "audio.h"
 
 Player::Player(glm::vec3 spawnPos)
 {
@@ -343,6 +344,13 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         health = 0.0f;
         isDead = true;
     }
+
+    // Звук получения урона (сравниваем с прошлым кадром)
+    if (health < prevHealth)
+    {
+        Audio::PlayPlayerHurt();
+    }
+    prevHealth = health;
 
     // Камера следует за игроком — глаза на высоте EYE_HEIGHT
     camera.Position = position + glm::vec3(0.0f, eyeHeight, 0.0f);
