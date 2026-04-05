@@ -181,7 +181,6 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         isGrounded = false;
         coyoteTimer = 0.0f;
         jumpBufferTimer = 0.0f;
-        maxFallSpeed = 0.0f;
     }
 
     if (inWater)
@@ -271,9 +270,6 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         velocity.z = currentXZ.y;
     }
 
-    if (velocity.y < 0.0f)
-        maxFallSpeed = std::max(maxFallSpeed, -velocity.y);
-
     glm::vec3 delta;
     delta.x = velocity.x * deltaTime;
     delta.z = velocity.z * deltaTime;
@@ -323,21 +319,30 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         }
     }
 
+    if (!isGrounded && !inWater && velocity.y < 0.0f)
+    {
+        if (fallStartY < 0.0f)
+            fallStartY = position.y + (isCrouching ? CROUCH_HEIGHT : HEIGHT);
+    }
+
     bool wasGrounded = isGrounded;
     MoveAndCollide(delta, world);
 
-    if (!wasGrounded && isGrounded && !inWater && maxFallSpeed > 0.0f)
+    if (!wasGrounded && isGrounded && !inWater)
     {
-        // Урон начинается с падения больше ~4 блоков
-        float fallDamage = maxFallSpeed - FALL_DAMAGE_THRESHOLD * 4.0f;
-        if (fallDamage > 0.0f)
-            health -= fallDamage * 0.5f;
-        maxFallSpeed = 0.0f;
+        if (fallStartY >= 0.0f)
+        {
+            float fallHeight = fallStartY - (position.y + (isCrouching ? CROUCH_HEIGHT : HEIGHT));
+            // Урон начиная с 4 блоков, 1 HP за каждый блок сверх
+            float damage = fallHeight - FALL_DAMAGE_THRESHOLD;
+            if (damage > 0.0f)
+                health -= damage;
+        }
+        fallStartY = -1.0f;
     }
 
-    // Смерть
-    if (isGrounded)
-        maxFallSpeed = 0.0f;
+    if (isGrounded || inWater)
+        fallStartY = -1.0f;
 
     if (health <= 0.0f)
     {

@@ -649,7 +649,6 @@ int main()
             player.velocity = glm::vec3(0.0f);
             player.health = Player::MAX_HEALTH;
             player.isDead = false;
-            player.maxFallSpeed = 0.0f;
             player.coyoteTimer = 0.0f;
             player.jumpBufferTimer = 0.0f;
             player.isGrounded = false;
@@ -685,7 +684,6 @@ int main()
                 }
                 player.position = glm::vec3(0.0f, (float)spawnY, 0.0f);
                 player.velocity = glm::vec3(0.0f);
-                player.maxFallSpeed = 0.0f; // сбрасываем урон от падения
                 player.coyoteTimer = 0.0f;
                 player.jumpBufferTimer = 0.0f;
                 player.isGrounded = false;

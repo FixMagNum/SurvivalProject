@@ -77,7 +77,7 @@ public:
     bool  isDead = false;
 
     // Для расчёта урона от падения
-    float maxFallSpeed = 0.0f; // максимальная скорость падения за этот прыжок
+    float fallStartY = -1.0f;  // Y откуда начали падать (< 0 = не падаем)
 
     // Буферы управления
     float coyoteTimer = 0.0f;
