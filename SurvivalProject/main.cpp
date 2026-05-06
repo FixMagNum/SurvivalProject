@@ -102,58 +102,98 @@ in float AO;
 in vec3 Normal;
 in vec3 FragPos;
 
-uniform sampler2D texture1;
-uniform vec3  uSunDir;          // направление к солнцу (нормализованное)
-uniform vec3  uSunColor;        // цвет солнца (меняется день/ночь)
-uniform vec3  uMoonDir;
-uniform vec3  uMoonColor;
-uniform float uAmbient;         // минимальная яркость (ночью меньше)
+uniform sampler2D texture1;     
+uniform float uAmbient;         // общая яркость сцены
+uniform vec3  uLightTint;       // оттенок света: день / закат / ночь
 uniform bool  uAlphaClip;
 uniform vec3  uCameraPos;       // позиция камеры
 uniform vec3  uSkyColor;        // цвет неба (тот же что glClearColor)
-uniform float uDaylight;        // 0.0 = полная ночь, 1.0 = полный день
 uniform bool  uUnderwater;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform float uTime;
+uniform bool  uAnimateWater;
+uniform vec2  uWaterBaseTile;   // координата первого кадра воды в атласе
 
 const float TILE_SIZE = 1.0 / 16.0;
 
+float getStaticFaceLight(vec3 n)
+{
+    if (n.y > 0.5)
+        return 1.0;    // верх
+    if (n.y < -0.5)
+        return 0.1;    // низ
+
+    // Боковые грани: две стороны чуть темнее, другие две ещё немного темнее
+    if (abs(n.x) > 0.5)
+        return 0.45;
+    return 0.20;
+}
+
+vec4 sampleAnimatedWater()
+{
+    vec2 localUV = fract(TexCoord) * TILE_SIZE;
+
+    if (!uAnimateWater)
+        return texture(texture1, TileOffset + localUV);
+
+    float anim = uTime * 1.0;   // скорость анимации
+    int frame0 = int(floor(anim)) % 9;
+    int frame1 = (frame0 + 1) % 9;
+    float t = smoothstep(0.0, 1.0, fract(anim));
+
+    vec2 f0 = vec2(float(frame0 % 3), float(frame0 / 3));
+    vec2 f1 = vec2(float(frame1 % 3), float(frame1 / 3));
+
+    vec2 uv0 = (uWaterBaseTile + f0) * TILE_SIZE + localUV;
+    vec2 uv1 = (uWaterBaseTile + f1) * TILE_SIZE + localUV;
+
+    vec4 c0 = texture(texture1, uv0);
+    vec4 c1 = texture(texture1, uv1);
+
+    return mix(c0, c1, t);
+}
+
 void main()
 {
-    vec2 uv = TileOffset + fract(TexCoord) * TILE_SIZE;
-    vec4 texColor = texture(texture1, uv);
+    vec4 texColor = sampleAnimatedWater();
 
     if (uAlphaClip && texColor.a < 0.5)
         discard;
 
-    float sunDiff  = max(dot(Normal, uSunDir),  0.0);
-    float moonDiff = max(dot(Normal, uMoonDir), 0.0);
+    float faceLight = getStaticFaceLight(Normal);
 
-    float aoFactor = mix(0.2, 1.0, AO);
+    // Статическое освещение граней + AO
+    float light = uAmbient * faceLight;
+    light *= mix(0.15, 1.0, AO);
 
-    float sunFade  = smoothstep(-0.1, 0.15, uSunDir.y);
-    float moonFade = smoothstep(-0.1, 0.15, uMoonDir.y);
+    vec3 rgb = texColor.rgb * light * uLightTint;
 
-    // Свет без AO, масштабируем на daylight
-    vec3 light = (uSunColor  * sunFade  * sunDiff
-               +  uMoonColor * moonFade * moonDiff
-               +  vec3(uAmbient)) * uDaylight;
+    // Гамма
+    rgb = pow(rgb, vec3(1.0 / 2.2));
 
-    // AO применяем отдельно — он не зависит от времени суток
-    FragColor = clamp(texColor * vec4(light, 1.0), 0.0, 1.0);
-    FragColor.rgb *= aoFactor;
+    // Под водой
+    if (uUnderwater)
+    {
+        vec3 waterTint = vec3(0.12, 0.28, 0.45);
+        rgb = mix(rgb, waterTint, 0.18);
+    }
 
-    // Туман и гамма
+    // Туман
     float dist = length(FragPos - uCameraPos);
-    float fogFactor = clamp((dist - 80.0) / (160.0 - 80.0), 0.0, 1.0);
-
-    FragColor.rgb = pow(FragColor.rgb, vec3(1.0 / 2.2));
+    float fogFactor = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
 
     if (uUnderwater)
     {
-    vec3 waterColor = vec3(78.0/256.0, 106.0/256.0, 180.0/256.0);
-    FragColor.rgb = mix(FragColor.rgb, waterColor, 0.5);
+        vec3 waterFog = vec3(0.12, 0.28, 0.45);
+        rgb = mix(rgb, waterFog, fogFactor);
+    }
+    else
+    {
+        rgb = mix(rgb, uSkyColor, fogFactor);
     }
 
-    FragColor.rgb = mix(FragColor.rgb, uSkyColor, fogFactor);
+    FragColor = vec4(rgb, texColor.a);
 }
 )";
 
@@ -302,7 +342,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 g_windowedW, g_windowedH, 0);
         }
     }
-    
+
     if (key == GLFW_KEY_E && action == GLFW_PRESS)
     {
         inventory.isOpen = !inventory.isOpen;
@@ -453,7 +493,7 @@ int main()
     glBindVertexArray(0);
 
     // OpenGL состояние
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
@@ -506,7 +546,7 @@ int main()
     Frustum frustum;
 
     // Запускаем начальную генерацию спавн-области, но не блокируем кадр
-    world.Update(0, 7, 0, camera.Front); // Y=7 примерно соответствует высоте 120 (120/16=7.5)
+    world.Update(int(player.position.x), int(player.position.y), int(player.position.z), camera.Front);
 
     // Находим поверхность в точке спавна
     int spawnY = 150;
@@ -537,12 +577,14 @@ int main()
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
     unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
-    unsigned int sunDirLoc = glGetUniformLocation(shaderProgram, "uSunDir");
-    unsigned int sunColorLoc = glGetUniformLocation(shaderProgram, "uSunColor");
-    unsigned int moonDirLoc = glGetUniformLocation(shaderProgram, "uMoonDir");
-    unsigned int moonColorLoc = glGetUniformLocation(shaderProgram, "uMoonColor");
     unsigned int ambientLoc = glGetUniformLocation(shaderProgram, "uAmbient");
+    unsigned int lightTintLoc = glGetUniformLocation(shaderProgram, "uLightTint");
     unsigned int screenSizeLoc = glGetUniformLocation(crosshairProgram, "uScreenSize");
+    unsigned int fogStartLoc = glGetUniformLocation(shaderProgram, "uFogStart");
+    unsigned int fogEndLoc = glGetUniformLocation(shaderProgram, "uFogEnd");
+    unsigned int timeLoc = glGetUniformLocation(shaderProgram, "uTime");
+    unsigned int animateWaterLoc = glGetUniformLocation(shaderProgram, "uAnimateWater");
+    unsigned int waterBaseTileLoc = glGetUniformLocation(shaderProgram, "uWaterBaseTile");
 
     // Timing / FPS
     double previousTime = 0.0, currentTime = 0.0, timeDifference = 0.0;
@@ -724,14 +766,14 @@ int main()
             {
                 BlockType broken = world.GetBlock(hit.worldX, hit.worldY, hit.worldZ);
 
-				// Разрушаем блок — ставим AIR
-				world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
+                // Разрушаем блок — ставим AIR
+                world.SetBlock(hit.worldX, hit.worldY, hit.worldZ, AIR);
                 Audio::PlayBlockBreak(broken,
                     hit.worldX + 0.5f,
                     hit.worldY + 0.5f,
                     hit.worldZ + 0.5f
                 );
-				world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
+                world.RebuildChunkAt(hit.worldX, hit.worldY, hit.worldZ);
 
                 // Кладём блок в инвентарь
                 if (broken != AIR)
@@ -904,12 +946,12 @@ int main()
                 ImGuiWindowFlags_NoMove |
                 ImGuiWindowFlags_NoSavedSettings |
                 ImGuiWindowFlags_NoBringToFrontOnFocus);
-            
+
             ImGui::SetCursorPos(ImVec2(1, 1));                              // смещение тени
             ImGui::TextColored(ImVec4(0, 0, 0, 1), "%d", hotbar.counts[i]); // тёмный
             ImGui::SetCursorPos(ImVec2(0, 0));                              // основной текст
             ImGui::Text("%d", hotbar.counts[i]);                            // белый
-            
+
             ImGui::End();
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
@@ -1009,46 +1051,40 @@ int main()
         ));
         glm::vec3 moonDir = -sunDir;
 
-        // Цвет неба и солнца зависит от высоты солнца
+        // Цвет и яркость света по времени суток
         float sunHeight = sunDir.y; // -1..1
         float moonHeight = moonDir.y;
 
-        // День: голубое небо, Закат: оранжевое, Ночь: тёмно-синее
+        glm::vec3 dayTint = glm::vec3(1.00f, 0.98f, 0.92f);
+        glm::vec3 sunsetTint = glm::vec3(1.00f, 0.65f, 0.35f);
+        glm::vec3 nightTint = glm::vec3(0.22f, 0.26f, 0.40f);
+
+        float dayFactor = glm::smoothstep(-0.15f, 0.25f, sunHeight);
+        float horizonFactor = 1.0f - glm::clamp(std::abs(sunHeight) * 6.0f, 0.0f, 1.0f);
+
+        glm::vec3 lightTint = glm::mix(nightTint, dayTint, dayFactor);
+        lightTint = glm::mix(lightTint, sunsetTint, horizonFactor * dayFactor);
+
+        float ambient = glm::mix(0.16f, 1.5f, dayFactor);
+        if (sunHeight < -0.15f)
+            ambient *= 0.55f;
+
+        // Цвет неба
         glm::vec3 skyDay = glm::vec3(0.5f, 0.7f, 1.0f);
         glm::vec3 skySunset = glm::vec3(1.0f, 0.4f, 0.1f);
         glm::vec3 skyNight = glm::vec3(0.0002f, 0.0002f, 0.0008f);
 
         glm::vec3 skyColor;
-        float ambient;
-
         if (sunHeight > 0.0f)
         {
-            // День — закат
             float t = glm::smoothstep(0.0f, 0.3f, sunHeight);
             skyColor = glm::mix(skySunset, skyDay, t);
-            ambient = glm::mix(0.3f, 0.15f, t); // на закате чуть темнее
         }
         else
         {
-            // Ночь
             float t = glm::smoothstep(0.0f, -0.2f, sunHeight);
             skyColor = glm::mix(skySunset, skyNight, t);
-            ambient = glm::mix(0.3f, 0.08f, t); // ночью очень темно
         }
-
-        // Цвет солнца — белый днём, оранжевый на закате
-        glm::vec3 sunColor = glm::mix(
-            glm::vec3(1.0f, 0.6f, 0.3f),
-            glm::vec3(1.0f, 1.0f, 1.0f),
-            glm::clamp(sunHeight * 3.0f, 0.0f, 1.0f)
-        );
-
-        // Лунный свет — холодный синеватый
-        float moonFade = glm::smoothstep(-0.1f, 0.15f, moonHeight);
-        glm::vec3 moonColor = glm::vec3(0.2f, 0.25f, 0.4f) * moonFade;
-
-        // Плавный переход день/ночь — 1.0 днём, 0.005 ночью
-        float daylight = glm::clamp(sunHeight * 3.0f + 0.5f, 0.005f, 1.0f);
 
         BlockType cameraBlock = world.GetBlock(
             (int)floor(camera.Position.x),
@@ -1071,7 +1107,12 @@ int main()
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
-        glm::vec3 skyColorGamma = glm::pow(skyColor, glm::vec3(1.0f / 2.2f));
+        glm::vec3 skyColorGamma;
+        if (underwater)
+            skyColorGamma = glm::vec3(0.12f, 0.28f, 0.45f);
+        else
+            skyColorGamma = glm::pow(skyColor, glm::vec3(1.0f / 2.2f));
+
         glClearColor(skyColorGamma.r, skyColorGamma.g, skyColorGamma.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1082,15 +1123,15 @@ int main()
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniform3fv(sunDirLoc, 1, glm::value_ptr(sunDir));
-        glUniform3fv(sunColorLoc, 1, glm::value_ptr(sunColor));
-        glUniform3fv(moonDirLoc, 1, glm::value_ptr(moonDir));
-        glUniform3fv(moonColorLoc, 1, glm::value_ptr(moonColor));
         glUniform1f(ambientLoc, ambient);
-        glUniform1f(glGetUniformLocation(shaderProgram, "uDaylight"), daylight);
+        glUniform1f(fogStartLoc, underwater ? 4.0f : 80.0f);
+        glUniform1f(fogEndLoc, underwater ? 28.0f : 160.0f);
+        glUniform1f(timeLoc, currentFrame);
+        glUniform3fv(lightTintLoc, 1, glm::value_ptr(lightTint));
         glUniform1i(glGetUniformLocation(shaderProgram, "uUnderwater"), underwater ? 1 : 0);
         glUniform3fv(glGetUniformLocation(shaderProgram, "uCameraPos"), 1, glm::value_ptr(camera.Position));
         glUniform3fv(glGetUniformLocation(shaderProgram, "uSkyColor"), 1, glm::value_ptr(skyColorGamma));
+        glUniform2f(waterBaseTileLoc, 12.0f, 3.0f);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -1104,6 +1145,8 @@ int main()
 
         for (RenderGroup group : renderOrder)
         {
+            glUniform1i(animateWaterLoc, group == RenderGroup::Water ? 1 : 0);
+
             // Настройка state под текущую группу
             if (group == RenderGroup::Opaque)
             {
@@ -1132,22 +1175,22 @@ int main()
                 glDisable(GL_BLEND);
             }
 
-			std::lock_guard<std::mutex> lock(world.chunkMapMutex);
+            std::lock_guard<std::mutex> lock(world.chunkMapMutex);
 
-			for (auto& [key, chunk] : world.chunkMap)
-			{
-				if (chunk->state.load() != ChunkState::Uploaded) continue;
-				chunk->CheckFence(); // проверяем без блокировки
-				if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
-				if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
+            for (auto& [key, chunk] : world.chunkMap)
+            {
+                if (chunk->state.load() != ChunkState::Uploaded) continue;
+                chunk->CheckFence(); // проверяем без блокировки
+                if (!chunk->gpuReady) continue; // пропускаем если GPU ещё не готов
+                if (!frustum.IsBoxVisible(chunk->bounds.min, chunk->bounds.max)) continue;
 
-				// Матрица трансляции для этого чанка
-				glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
-				glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
+                // Матрица трансляции для этого чанка
+                glm::mat4 chunkModel = glm::translate(glm::mat4(1.0f), chunk->bounds.min);
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(chunkModel));
 
-				chunk->DrawGroup(group, camera.Position);
-			}
-		}
+                chunk->DrawGroup(group, camera.Position);
+            }
+        }
 
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
@@ -1156,7 +1199,7 @@ int main()
         glUniform1i(alphaClipLoc, 0);
 
         // Подсветка блока
-        if (hit.hit)
+        if (hit.hit && world.GetBlock(hit.worldX, hit.worldY, hit.worldZ) != WATER)
         {
             glm::mat4 outlineModel = glm::translate(glm::mat4(1.0f),
                 glm::vec3(hit.worldX + 0.5f, hit.worldY + 0.5f, hit.worldZ + 0.5f));

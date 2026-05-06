@@ -23,20 +23,20 @@ static int GetTopTile(BlockType type)
     auto tile = [](int x, int y) { return y * ATLAS + x; };
     switch (type)
     {
-    case GRASS:       return tile(2, 0);
-    case DIRT:        return tile(0, 0);
-    case STONE:       return tile(3, 0);
-    case OAK_PLANKS:  return tile(4, 0);
-    case GLASS:       return tile(5, 0);
-	case WATER:       return tile(6, 0);
-	case OAK_LOG:     return tile(7, 0);
-	case OAK_LEAVES:  return tile(9, 0);
-	case SAND:        return tile(10, 0);
-	case SNOW:        return tile(11, 0);
-    case BEDROCK:     return tile(12, 0);
-    case COBBLESTONE: return tile(13, 0);
-    case POOP:        return tile(14, 0);
-    case BASALT:      return tile(15, 0);
+    case GRASS:       return tile(0,  15);
+    case DIRT:        return tile(2,  15);
+    case STONE:       return tile(1,  15);
+    case OAK_PLANKS:  return tile(4,  15);
+    case GLASS:       return tile(3,  11);
+    case WATER:       return tile(12, 3);
+    case OAK_LOG:     return tile(5,  14);
+    case OAK_LEAVES:  return tile(4,  12);
+    case SAND:        return tile(2,  14);
+    case SNOW:        return tile(2,  11);
+    case BEDROCK:     return tile(1,  6);
+    case COBBLESTONE: return tile(0,  14);
+    case POOP:        return tile(9,  0);
+    case BASALT:      return tile(6,  15);
     default:          return -1;
     }
 }

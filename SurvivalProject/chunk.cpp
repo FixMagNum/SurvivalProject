@@ -17,21 +17,22 @@ static int Tile(int x, int y)
 
 BlockData blockDatabase[] =
 {
-    { 0, 0, 0 },                              // AIR
-    { Tile(2,0),  Tile(0,0),  Tile(1,0) },    // GRASS
-    { Tile(0,0),  Tile(0,0),  Tile(0,0) },    // DIRT
-    { Tile(3,0),  Tile(3,0),  Tile(3,0) },    // STONE
-    { Tile(4,0),  Tile(4,0),  Tile(4,0) },    // OAK_PLANKS
-    { Tile(5,0),  Tile(5,0),  Tile(5,0) },    // GLASS
-    { Tile(6,0),  Tile(6,0),  Tile(6,0) },    // WATER
-	{ Tile(8,0),  Tile(8,0),  Tile(7,0) },    // OAK_LOG
-    { Tile(9,0),  Tile(9,0),  Tile(9,0) },    // OAK_LEAVES
-    { Tile(10,0), Tile(10,0), Tile(10,0) },   // SAND
-	{ Tile(11,0), Tile(11,0), Tile(11,0) },   // SNOW
-    { Tile(12,0), Tile(12,0), Tile(12,0) },   // BEDROCK
-    { Tile(13,0), Tile(13,0), Tile(13,0) },   // COBBLESTONE
-    { Tile(14,0), Tile(14,0), Tile(14,0) },   // POOP
-	{ Tile(15,0), Tile(15,0), Tile(15,0) },   // BASALT
+	// TOP,        BOTTOM,      SIDE
+    { 0, 0, 0 },                                  // AIR
+    { Tile(0,15),  Tile(2,15),  Tile(3,15) },     // GRASS
+    { Tile(2,15),  Tile(2,15),  Tile(2,15) },     // DIRT
+    { Tile(1,15),  Tile(1,15),  Tile(1,15) },     // STONE
+    { Tile(4,15),  Tile(4,15),  Tile(4,15) },     // OAK_PLANKS
+    { Tile(3,11),  Tile(3,11),  Tile(3,11) },     // GLASS
+    { Tile(12,3),  Tile(12,3),  Tile(12,3) },     // WATER
+	{ Tile(5,14),  Tile(5,14),  Tile(4,14) },     // OAK_LOG
+    { Tile(4,12),  Tile(4,12),  Tile(4,12) },     // OAK_LEAVES
+    { Tile(2,14),  Tile(2,14),  Tile(2,14) },     // SAND
+	{ Tile(2,11),  Tile(2,11),  Tile(2,11) },     // SNOW
+    { Tile(1,6),   Tile(1,6),   Tile(1,6) },      // BEDROCK
+    { Tile(0,14),  Tile(0,14),  Tile(0,14) },     // COBBLESTONE
+    { Tile(9,0),   Tile(9,0),   Tile(9,0) },      // POOP
+	{ Tile(6,15),  Tile(6,15),  Tile(6,15) },     // BASALT
 };
 
 static inline bool IsTransparentGroup(RenderGroup g)
