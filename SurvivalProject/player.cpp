@@ -334,46 +334,77 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     delta.z = velocity.z * deltaTime;
     delta.y = velocity.y * deltaTime;
 
-    // Sneak — не падать с края при приседании
+    // Sneak - не падать с края при приседании
     if (isCrouching && isGrounded)
     {
-        // Проверяем X
-        glm::vec3 testPos = position;
-        testPos.x += delta.x;
-        int bx = (int)floor(testPos.x - half);
-        int bx2 = (int)floor(testPos.x + half - 0.001f);
-        int by = (int)floor(position.y) - 1;
-        int bz1 = (int)floor(position.z - half);
-        int bz2 = (int)floor(position.z + half - 0.001f);
+        float half = WIDTH * 0.5f;
+        const float eps = 0.001f;
 
-        bool solidUnderX = false;
-        for (int x = bx; x <= bx2 && !solidUnderX; x++)
-            for (int z = bz1; z <= bz2 && !solidUnderX; z++)
-                if (IsSolid(x, by, z, world)) solidUnderX = true;
+        auto HasSupportAt = [&](float px, float pz) -> bool
+            {
+                int minX = (int)floor(px - half + eps);
+                int maxX = (int)floor(px + half - eps);
+                int minZ = (int)floor(pz - half + eps);
+                int maxZ = (int)floor(pz + half - eps);
 
-        if (!solidUnderX)
+                int y = (int)floor(position.y) - 1;
+
+                for (int x = minX; x <= maxX; ++x)
+                    for (int z = minZ; z <= maxZ; ++z)
+                        if (IsSolid(x, y, z, world))
+                            return true;
+
+                return false;
+            };
+
+        float fullX = position.x + delta.x;
+        float fullZ = position.z + delta.z;
+
+        float xOnlyX = position.x + delta.x;
+        float xOnlyZ = position.z;
+
+        float zOnlyX = position.x;
+        float zOnlyZ = position.z + delta.z;
+
+        bool canMoveFull = HasSupportAt(fullX, fullZ);
+        bool canMoveXOnly = HasSupportAt(xOnlyX, xOnlyZ);
+        bool canMoveZOnly = HasSupportAt(zOnlyX, zOnlyZ);
+
+        if (canMoveFull)
+        {
+            // всё ок, оставляем как есть
+        }
+        else if (canMoveXOnly && !canMoveZOnly)
+        {
+            delta.z = 0.0f;
+            velocity.z = 0.0f;
+        }
+        else if (canMoveZOnly && !canMoveXOnly)
         {
             delta.x = 0.0f;
             velocity.x = 0.0f;
         }
-
-        // Проверяем Z
-        testPos = position;
-        testPos.z += delta.z;
-        int bz = (int)floor(testPos.z - half);
-        int bz_2 = (int)floor(testPos.z + half - 0.001f);
-        int by2 = (int)floor(position.y) - 1;
-        int bx1 = (int)floor(position.x - half);
-        int bx_2 = (int)floor(position.x + half - 0.001f);
-
-        bool solidUnderZ = false;
-        for (int x = bx1; x <= bx_2 && !solidUnderZ; x++)
-            for (int z = bz; z <= bz_2 && !solidUnderZ; z++)
-                if (IsSolid(x, by2, z, world)) solidUnderZ = true;
-
-        if (!solidUnderZ)
+        else if (canMoveXOnly && canMoveZOnly)
         {
+            // Оба направления безопасны, но совместный шаг - нет
+            // Оставляем более сильную ось, вторую режем
+            if (std::abs(delta.x) >= std::abs(delta.z))
+            {
+                delta.z = 0.0f;
+                velocity.z = 0.0f;
+            }
+            else
+            {
+                delta.x = 0.0f;
+                velocity.x = 0.0f;
+            }
+        }
+        else
+        {
+            // Опоры нет ни для одного варианта
+            delta.x = 0.0f;
             delta.z = 0.0f;
+            velocity.x = 0.0f;
             velocity.z = 0.0f;
         }
     }
