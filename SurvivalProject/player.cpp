@@ -16,7 +16,7 @@ Player::Player(glm::vec3 spawnPos)
 bool Player::IsSolid(int x, int y, int z, World& world)
 {
     BlockType b = world.GetBlock(x, y, z);
-    return b != AIR && b != WATER;
+    return b != AIR && b != WATER && b != TALL_GRASS;
 }
 
 Player::WaterInfo Player::SampleWater(World& world) const
@@ -62,6 +62,30 @@ void Player::RequestSwimUp()
     swimUpRequested = true;
 }
 
+void Player::ToggleFlight()
+{
+    isFlying = !isFlying;
+
+    velocity = glm::vec3(0.0f);
+    isGrounded = false;
+    fallStartY = -1.0f;
+    coyoteTimer = 0.0f;
+    jumpBufferTimer = 0.0f;
+    swimUpRequested = false;
+    flyUpRequested = false;
+    flyDownRequested = false;
+}
+
+void Player::RequestFlyUp()
+{
+    flyUpRequested = true;
+}
+
+void Player::RequestFlyDown()
+{
+    flyDownRequested = true;
+}
+
 void Player::MoveAndCollide(glm::vec3 delta, World& world)
 {
     float half = WIDTH / 2.0f;
@@ -77,16 +101,18 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
             if (axis == 1) position.y += d;
             if (axis == 2) position.z += d;
 
-            int minX = (int)floor(position.x - half);
+            int minX = (int)floor(position.x - half + 0.001f);
             int maxX = (int)floor(position.x + half - 0.001f);
             int minY = (int)floor(position.y);
             int maxY = (int)floor(position.y + currentHeight - 0.001f);
-            int minZ = (int)floor(position.z - half);
+            int minZ = (int)floor(position.z - half + 0.001f);
             int maxZ = (int)floor(position.z + half - 0.001f);
 
-            for (int x = minX; x <= maxX; x++)
-                for (int y = minY; y <= maxY; y++)
-                    for (int z = minZ; z <= maxZ; z++)
+            bool resolved = false;
+
+            for (int x = minX; x <= maxX && !resolved; x++)
+                for (int y = minY; y <= maxY && !resolved; y++)
+                    for (int z = minZ; z <= maxZ && !resolved; z++)
                     {
                         if (!IsSolid(x, y, z, world)) continue;
 
@@ -106,6 +132,8 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
                                 isGrounded = true;
                             }
                             velocity.y = 0.0f;
+
+                            resolved = true;
                         }
                         else
                         {
@@ -115,21 +143,21 @@ void Player::MoveAndCollide(glm::vec3 delta, World& world)
                         }
 
                         // Пересчитываем AABB после выталкивания
-                        minX = (int)floor(position.x - half);
+                        minX = (int)floor(position.x - half + 0.001f);
                         maxX = (int)floor(position.x + half - 0.001f);
                         minY = (int)floor(position.y);
                         maxY = (int)floor(position.y + currentHeight - 0.001f);
-                        minZ = (int)floor(position.z - half);
+                        minZ = (int)floor(position.z - half + 0.001f);
                         maxZ = (int)floor(position.z + half - 0.001f);
                     }
         };
 
     isGrounded = false;
 
-    // Порядок важен: сначала Y (гравитация), потом X и Z
-    resolveAxis(1, delta.y);
+    // Порядок важен: сначала X и Z (выталкиваем от стен горизонтально), ПОТОМ Y (гравитация/прыжок)
     resolveAxis(0, delta.x);
     resolveAxis(2, delta.z);
+    resolveAxis(1, delta.y);
 }
 
 void Player::Update(float deltaTime, World& world, Camera& camera)
@@ -167,6 +195,37 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
     float speed = MOVE_SPEED;
     if (isSprinting && !isCrouching) speed = SPRINT_SPEED;
     if (isCrouching)                 speed = CROUCH_SPEED;
+
+    if (isFlying)
+    {
+        glm::vec3 flyDir(0.0f);
+
+        if (moveForward) flyDir += forward;
+        if (moveBack)    flyDir -= forward;
+        if (moveLeft)    flyDir -= right;
+        if (moveRight)   flyDir += right;
+
+        if (flyUpRequested)   flyDir.y += 1.0f;
+        if (flyDownRequested) flyDir.y -= 1.0f;
+
+        if (glm::length(flyDir) > 0.0f)
+            flyDir = glm::normalize(flyDir);
+
+        velocity = flyDir * FLIGHT_SPEED;
+
+        flyUpRequested = false;
+        flyDownRequested = false;
+        swimUpRequested = false;
+        coyoteTimer = 0.0f;
+        jumpBufferTimer = 0.0f;
+        fallStartY = -1.0f;
+
+        MoveAndCollide(velocity * deltaTime, world);
+        isGrounded = false;
+
+        camera.Position = position + glm::vec3(0.0f, eyeHeight, 0.0f);
+        return;
+    }
 
     if (isGrounded)
         coyoteTimer = COYOTE_TIME;

@@ -144,7 +144,15 @@ void World::ScheduleChunk(int cx, int cy, int cz)
             LinkNeighbors(chunk);
 
             auto markRebuild = [](Chunk* neighbor) {
-                if (neighbor && neighbor->state.load() == ChunkState::Uploaded)
+                if (!neighbor) return;
+                auto s = neighbor->state.load();
+                // Помечаем rebuild для всех состояний, когда меш уже строится или готов:
+                // - Uploaded:     обычный путь, перестроим на следующем кадре
+                // - MeshBuilding: меш строится сейчас без нас как соседа → после загрузки перестроим
+                // - MeshReady:    меш построен но ещё не на GPU → флаг сохранится до Uploaded
+                if (s == ChunkState::Uploaded ||
+                    s == ChunkState::MeshBuilding ||
+                    s == ChunkState::MeshReady)
                     neighbor->needsRebuild.store(true);
                 };
 
@@ -283,19 +291,20 @@ void World::UnloadDistantChunks(int playerChunkX, int playerChunkY, int playerCh
     }
 }
 
-// True если все 4 соседа существуют и уже закончили Generate().
-// Вызывать под chunkMapMutex.
+// True если все существующие соседи (все 6 направлений) уже закончили Generate()
+// Вызывать под chunkMapMutex
 static bool AllNeighborsGenerated(
     const std::unordered_map<ChunkKey, std::unique_ptr<Chunk>, ChunkKeyHash>& chunkMap,
     int cx, int cy, int cz)
 {
-    // Горизонтальные соседи обязательны
-    const int ddx[] = { 1, -1, 0,  0 };
-    const int ddz[] = { 0,  0, 1, -1 };
-    for (int i = 0; i < 4; i++)
+    // Все 6 направлений: +X, -X, +Y, -Y, +Z, -Z
+    const int ddx[] = { 1, -1, 0,  0, 0,  0 };
+    const int ddy[] = { 0,  0, 1, -1, 0,  0 };
+    const int ddz[] = { 0,  0, 0,  0, 1, -1 };
+    for (int i = 0; i < 6; i++)
     {
-        auto it = chunkMap.find({ cx + ddx[i], cy, cz + ddz[i] });
-        if (it == chunkMap.end()) return false;
+        auto it = chunkMap.find({ cx + ddx[i], cy + ddy[i], cz + ddz[i] });
+        if (it == chunkMap.end()) continue; // соседа нет совсем — OK (край мира)
         auto s = it->second->state.load();
         if (s == ChunkState::Empty || s == ChunkState::Generating) return false;
     }
@@ -376,6 +385,10 @@ BlockType World::GetBlock(int worldX, int worldY, int worldZ)
     std::lock_guard<std::mutex> lock(chunkMapMutex);
     auto it = chunkMap.find({ chunkX, chunkY, chunkZ });
     if (it == chunkMap.end()) return AIR;
+
+    // Пока чанк генерируется, blocks[] заполнен нулями (AIR из memset)
+    auto s = it->second->state.load();
+    if (s == ChunkState::Empty || s == ChunkState::Generating) return AIR;
 
     int localX = worldX - chunkX * Chunk::SIZE_X;
     int localY = worldY - chunkY * Chunk::SIZE_Y;

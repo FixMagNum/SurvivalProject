@@ -85,6 +85,16 @@ public:
 
     float prevHealth = MAX_HEALTH; // здоровье на прошлом кадре
 
+    static constexpr float FLIGHT_SPEED = 32.0f;
+
+    bool isFlying = false;
+    bool flyUpRequested = false;
+    bool flyDownRequested = false;
+
+    void ToggleFlight();
+    void RequestFlyUp();
+    void RequestFlyDown();
+
 private:
     // Двигаем по одной оси и сразу резолвим коллизии
     void MoveAndCollide(glm::vec3 delta, World& world);

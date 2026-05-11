@@ -40,6 +40,7 @@ static int GetTopTile(BlockType type)
     case COBBLESTONE: return tile(0,  14);
     case POOP:        return tile(9,  0);
     case BASALT:      return tile(6,  15);
+    case TALL_GRASS:  return tile(5,  10);
     default:          return -1;
     }
 }
@@ -199,7 +200,7 @@ void Hotbar::Draw(float screenW, float screenH)
         float y = startY + MARGIN;
         float s = SLOT_SIZE - MARGIN * 2;
 
-        BuildQuad(buf, off, x, y, s, s, u0, v0, u1, v1);
+        BuildQuad(buf, off, x, y, s, s, u0, v1, u1, v0);
     }
 
     int iconQuads = off / (6 * 8) - bgQuads;

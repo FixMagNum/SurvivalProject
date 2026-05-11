@@ -33,6 +33,7 @@ BlockData blockDatabase[] =
     { Tile(0,14),  Tile(0,14),  Tile(0,14) },     // COBBLESTONE
     { Tile(9,0),   Tile(9,0),   Tile(9,0) },      // POOP
 	{ Tile(6,15),  Tile(6,15),  Tile(6,15) },     // BASALT
+	{ Tile(5,10),  Tile(5,10),  Tile(5,10) },     // TALL_GRASS
 };
 
 static inline bool IsTransparentGroup(RenderGroup g)
@@ -61,12 +62,12 @@ static inline bool TransparentFaceVisible(BlockType cur, BlockType neighbor)
         return true;
 
     // По умолчанию для прочих прозрачных пар:
-    return false;
+    return true;
 }
 
 static inline bool FaceVisible(BlockType cur, BlockType neighbor)
 {
-    if (cur == AIR) return false;
+    if (cur == AIR || cur == TALL_GRASS) return false;
     if (neighbor == AIR) return true;
 
     RenderGroup gc = GetRenderGroup(cur);
@@ -422,6 +423,41 @@ void Chunk::Generate()
                 blocks[x][apex][z] = OAK_LEAVES;
         }
     }
+
+    // Высокая трава
+    FastNoiseLite grassNoise;
+    grassNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    grassNoise.SetFrequency(0.88f);
+    grassNoise.SetSeed(2468);
+
+    for (int x = 1; x < SIZE_X - 1; ++x)
+    {
+        for (int z = 1; z < SIZE_Z - 1; ++z)
+        {
+            float worldX = x + chunkPos.x * SIZE_X;
+            float worldZ = z + chunkPos.z * SIZE_Z;
+
+            // Редкость спавна
+            float g = grassNoise.GetNoise(worldX, worldZ);
+            if (g < 0.45f)
+                continue;
+
+            // Ищем верхний блок в колонке
+            for (int y = SIZE_Y - 2; y >= 0; --y)
+            {
+                if (blocks[x][y][z] == AIR)
+                    continue;
+
+                // Ставим только на верхнюю поверхность травы
+                if (blocks[x][y][z] == GRASS && blocks[x][y + 1][z] == AIR)
+                {
+                    blocks[x][y + 1][z] = TALL_GRASS;
+                }
+
+                break;
+            }
+        }
+    }
 }
 
 int Chunk::ComputeAO(int side1, int side2, int corner)
@@ -483,15 +519,33 @@ void Chunk::AddQuad(
     uint32_t firstIndex = (uint32_t)inds.size();
     push(0); push(1); push(2); push(3);
 
+    bool flipDiag = (aoArr[1] + aoArr[3]) > (aoArr[0] + aoArr[2]);
+
     if (!flipWinding)
     {
-        inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 1);
-        inds.push_back(base + 0); inds.push_back(base + 3); inds.push_back(base + 2);
+        if (!flipDiag)
+        {
+            inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 1);
+            inds.push_back(base + 0); inds.push_back(base + 3); inds.push_back(base + 2);
+        }
+        else
+        {
+            inds.push_back(base + 0); inds.push_back(base + 3); inds.push_back(base + 1);
+            inds.push_back(base + 1); inds.push_back(base + 3); inds.push_back(base + 2);
+        }
     }
     else
     {
-        inds.push_back(base + 0); inds.push_back(base + 1); inds.push_back(base + 2);
-        inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 3);
+        if (!flipDiag)
+        {
+            inds.push_back(base + 0); inds.push_back(base + 1); inds.push_back(base + 2);
+            inds.push_back(base + 0); inds.push_back(base + 2); inds.push_back(base + 3);
+        }
+        else
+        {
+            inds.push_back(base + 0); inds.push_back(base + 1); inds.push_back(base + 3);
+            inds.push_back(base + 1); inds.push_back(base + 2); inds.push_back(base + 3);
+        }
     }
 
     if (group == RenderGroup::Water || group == RenderGroup::Glass)
@@ -519,41 +573,60 @@ void Chunk::GenerateMeshData()
 
     if (!hasBlocks) return;
 
-    auto getBlock = [&](int x, int y, int z) -> BlockType {
-        if (x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
-            return blocks[x][y][z];
+    auto emitTallGrass = [&](int x, int y, int z)
+        {
+            if (blocks[x][y][z] != TALL_GRASS)
+                return;
 
-        if (x < 0 && neighborNX) {
-            int lx = x + SIZE_X;
-            if (lx >= 0 && lx < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
-                return neighborNX->blocks[lx][y][z];
-        }
-        if (x >= SIZE_X && neighborPX) {
-            int lx = x - SIZE_X;
-            if (lx >= 0 && lx < SIZE_X && y >= 0 && y < SIZE_Y && z >= 0 && z < SIZE_Z)
-                return neighborPX->blocks[lx][y][z];
-        }
-        if (y < 0 && neighborNY) {
-            int ly = y + SIZE_Y;
-            if (ly >= 0 && ly < SIZE_Y && x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
-                return neighborNY->blocks[x][ly][z];
-        }
-        if (y >= SIZE_Y && neighborPY) {
-            int ly = y - SIZE_Y;
-            if (ly >= 0 && ly < SIZE_Y && x >= 0 && x < SIZE_X && z >= 0 && z < SIZE_Z)
-                return neighborPY->blocks[x][ly][z];
-        }
-        if (z < 0 && neighborNZ) {
-            int lz = z + SIZE_Z;
-            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y)
-                return neighborNZ->blocks[x][y][lz];
-        }
-        if (z >= SIZE_Z && neighborPZ) {
-            int lz = z - SIZE_Z;
-            if (lz >= 0 && lz < SIZE_Z && x >= 0 && x < SIZE_X && y >= 0 && y < SIZE_Y)
-                return neighborPZ->blocks[x][y][lz];
-        }
-        return AIR;
+            int tileID = blockDatabase[TALL_GRASS].top;
+            RenderGroup group = GetRenderGroup(TALL_GRASS);
+
+            // Две скрещенные плоскости, каждая продублирована с обратным winding
+            AddQuad(glm::vec3(x, y, z),
+                glm::vec3(1, 0, 1), 1,
+                glm::vec3(0, 1, 0), 1,
+                tileID, false,
+                1.f, 1.f, 1.f, 1.f,
+                2, group, false);
+            AddQuad(glm::vec3(x, y, z),
+                glm::vec3(1, 0, 1), 1,
+                glm::vec3(0, 1, 0), 1,
+                tileID, true,
+                1.f, 1.f, 1.f, 1.f,
+                2, group, false);
+
+            AddQuad(glm::vec3(x + 1, y, z),
+                glm::vec3(-1, 0, 1), 1,
+                glm::vec3(0, 1, 0), 1,
+                tileID, false,
+                1.f, 1.f, 1.f, 1.f,
+                4, group, false);
+            AddQuad(glm::vec3(x + 1, y, z),
+                glm::vec3(-1, 0, 1), 1,
+                glm::vec3(0, 1, 0), 1,
+                tileID, true,
+                1.f, 1.f, 1.f, 1.f,
+                4, group, false);
+        };
+
+    for (int x = 0; x < SIZE_X; ++x)
+        for (int y = 0; y < SIZE_Y; ++y)
+            for (int z = 0; z < SIZE_Z; ++z)
+                emitTallGrass(x, y, z);
+
+    auto getBlock = [&](int x, int y, int z) -> BlockType {
+        Chunk* c = this;
+
+        if (x < 0) { c = c->neighborNX; if (!c) return AIR; x += SIZE_X; }
+        else if (x >= SIZE_X) { c = c->neighborPX; if (!c) return AIR; x -= SIZE_X; }
+
+        if (y < 0) { c = c->neighborNY; if (!c) return AIR; y += SIZE_Y; }
+        else if (y >= SIZE_Y) { c = c->neighborPY; if (!c) return AIR; y -= SIZE_Y; }
+
+        if (z < 0) { c = c->neighborNZ; if (!c) return AIR; z += SIZE_Z; }
+        else if (z >= SIZE_Z) { c = c->neighborPZ; if (!c) return AIR; z -= SIZE_Z; }
+        
+        return c->blocks[x][y][z];
         };
 
     auto getTile = [&](BlockType type, int direction) -> int {
@@ -565,7 +638,7 @@ void Chunk::GenerateMeshData()
         };
 
     auto isTransparent = [](BlockType b) -> bool {
-        return b == GLASS || b == WATER || b == OAK_LEAVES;
+        return b == GLASS || b == WATER || b == OAK_LEAVES || b == TALL_GRASS;
         };
 
     auto solid = [&](int x, int y, int z) -> int {
@@ -686,7 +759,7 @@ void Chunk::GenerateMeshData()
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
                 BlockType below = getBlock(x, y - 1, z);
-                
+
                 if (FaceVisible(cur, below))
                 {
                     cell.tileID = getTile(cur, 1);
@@ -1090,7 +1163,7 @@ void Chunk::FreeGPU()
     if (EBO) { glDeleteBuffers(1, &EBO); EBO = 0; }
     vertices.clear();
     indices.clear();
-    
+
     for (auto& b : meshGroups)
     {
         if (b.VAO) { glDeleteVertexArrays(1, &b.VAO); b.VAO = 0; }

@@ -253,6 +253,7 @@ static int  g_windowedW = 800, g_windowedH = 600;
 static bool g_leftClick = false;
 static bool g_rightClick = false;
 static bool g_prevSpace = false;
+static bool g_prevF = false;
 
 static double g_mouseX = 0.0, g_mouseY = 0.0;
 
@@ -540,6 +541,7 @@ int main()
     hotbar.slots[5] = COBBLESTONE, hotbar.counts[5] = 64;
     hotbar.slots[6] = POOP, hotbar.counts[6] = 64;
     hotbar.slots[7] = BASALT, hotbar.counts[7] = 64;
+    hotbar.slots[8] = TALL_GRASS, hotbar.counts[8] = 64;
 
     // Мир
     World world;
@@ -629,42 +631,63 @@ int main()
         player.moveRight = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
         player.isSprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
         bool wantsCrouch = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
-
-        // Если хочет встать — проверяем есть ли место
-        if (!wantsCrouch && player.isCrouching)
+        bool spaceDown = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
+        bool fDown = (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS);
+        
+        if (fDown && !g_prevF)
         {
-            // Проверяем есть ли место для полного роста
-            float half = Player::WIDTH / 2.0f;
-            int minX = (int)floor(player.position.x - half);
-            int maxX = (int)floor(player.position.x + half - 0.001f);
-            int minZ = (int)floor(player.position.z - half);
-            int maxZ = (int)floor(player.position.z + half - 0.001f);
-            int topY = (int)floor(player.position.y + Player::HEIGHT - 0.001f);
+            player.ToggleFlight();
+        }
+        g_prevF = fDown;
 
-            bool canStand = true;
-            for (int x = minX; x <= maxX && canStand; x++)
-                for (int z = minZ; z <= maxZ && canStand; z++)
-                    if (player.IsSolid(x, topY, z, world))
-                        canStand = false;
+        if (player.isFlying)
+        {
+            player.isCrouching = false;
 
-            player.isCrouching = !canStand; // встаём только если есть место
+            if (spaceDown)
+                player.RequestFlyUp();
+
+            if (wantsCrouch)
+                player.RequestFlyDown();
+
+            g_prevSpace = spaceDown;
         }
         else
         {
-            player.isCrouching = wantsCrouch;
-        }
+            // Если хочет встать — проверяем есть ли место
+            if (!wantsCrouch && player.isCrouching)
+            {
+            // Проверяем есть ли место для полного роста
+                float half = Player::WIDTH / 2.0f;
+                int minX = (int)floor(player.position.x - half);
+                int maxX = (int)floor(player.position.x + half - 0.001f);
+                int minZ = (int)floor(player.position.z - half);
+                int maxZ = (int)floor(player.position.z + half - 0.001f);
+                int topY = (int)floor(player.position.y + Player::HEIGHT - 0.001f);
 
-        bool spaceDown = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
+                bool canStand = true;
+                for (int x = minX; x <= maxX && canStand; x++)
+                    for (int z = minZ; z <= maxZ && canStand; z++)
+                        if (player.IsSolid(x, topY, z, world))
+                            canStand = false;
 
-        if (spaceDown && !g_prevSpace)
-        {
-            if (player.inWater)
-                player.RequestSwimUp();
+            player.isCrouching = !canStand; // встаём только если есть место
+            }
             else
-                player.RequestJump();
-        }
+            {
+                player.isCrouching = wantsCrouch;
+            }
 
-        g_prevSpace = spaceDown;
+            if (spaceDown && !g_prevSpace)
+            {
+                if (player.inWater)
+                    player.RequestSwimUp();
+                else
+                    player.RequestJump();
+            }
+
+            g_prevSpace = spaceDown;
+        }
 
         // Обновляем физику и двигаем камеру
         player.Update(deltaTime, world, camera);
