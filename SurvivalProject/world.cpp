@@ -514,18 +514,27 @@ void World::RebuildChunkAt(int worldX, int worldY, int worldZ)
             it->second->BuildMesh();
         };
 
-    rebuild(chunkX, chunkY, chunkZ);
-
     // Локальная позиция внутри чанка
     int localX = worldX - chunkX * Chunk::SIZE_X;
     int localY = worldY - chunkY * Chunk::SIZE_Y;
     int localZ = worldZ - chunkZ * Chunk::SIZE_Z;
 
-    // Если на границе — перестраиваем соседа
-    if (localX == 0)                 rebuild(chunkX - 1, chunkY, chunkZ);
-    if (localX == Chunk::SIZE_X - 1) rebuild(chunkX + 1, chunkY, chunkZ);
-    if (localY == 0)                 rebuild(chunkX, chunkY - 1, chunkZ);
-    if (localY == Chunk::SIZE_Y - 1) rebuild(chunkX, chunkY + 1, chunkZ);
-    if (localZ == 0)                 rebuild(chunkX, chunkY, chunkZ - 1);
-    if (localZ == Chunk::SIZE_Z - 1) rebuild(chunkX, chunkY, chunkZ + 1);
+    // Перестраиваем все затронутые чанки - включая диагональные
+    for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                bool okX = (dx == 0)
+                    || (dx == -1 && localX == 0)
+                    || (dx == 1 && localX == Chunk::SIZE_X - 1);
+                bool okY = (dy == 0)
+                    || (dy == -1 && localY == 0)
+                    || (dy == 1 && localY == Chunk::SIZE_Y - 1);
+                bool okZ = (dz == 0)
+                    || (dz == -1 && localZ == 0)
+                    || (dz == 1 && localZ == Chunk::SIZE_Z - 1);
+
+                if (okX && okY && okZ)
+                    rebuild(chunkX + dx, chunkY + dy, chunkZ + dz);
+            }
 }
