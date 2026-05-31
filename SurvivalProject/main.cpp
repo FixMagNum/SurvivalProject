@@ -545,7 +545,7 @@ int main()
 
     // Мир
     World world;
-    Frustum frustum;
+    Frustum frustum{};
 
     // Запускаем начальную генерацию спавн-области, но не блокируем кадр
     world.Update(int(player.position.x), int(player.position.y), int(player.position.z), camera.Front);

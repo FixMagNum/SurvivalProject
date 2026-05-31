@@ -573,6 +573,27 @@ void Chunk::GenerateMeshData()
 
     if (!hasBlocks) return;
 
+    // Border-буфер: [SIZE_X+2][SIZE_Y+2][SIZE_Z+2].
+    // borderBuf[x+1][y+1][z+1] == блок в локальных координатах (x, y, z),
+    // где x/y/z лежат в диапазоне [-1 .. SIZE-1+1]
+    BlockType borderBuf[SIZE_X + 2][SIZE_Y + 2][SIZE_Z + 2]{};
+
+    auto fetchNeighborBlock = [&](int x, int y, int z) -> BlockType {
+        Chunk* c = this;
+        if (x < 0) { c = c->neighborNX; if (!c) return AIR; x += SIZE_X; }
+        else if (x >= SIZE_X) { c = c->neighborPX; if (!c) return AIR; x -= SIZE_X; }
+        if (y < 0) { c = c->neighborNY; if (!c) return AIR; y += SIZE_Y; }
+        else if (y >= SIZE_Y) { c = c->neighborPY; if (!c) return AIR; y -= SIZE_Y; }
+        if (z < 0) { c = c->neighborNZ; if (!c) return AIR; z += SIZE_Z; }
+        else if (z >= SIZE_Z) { c = c->neighborPZ; if (!c) return AIR; z -= SIZE_Z; }
+        return c->blocks[x][y][z];
+        };
+
+    for (int x = -1; x <= SIZE_X; ++x)
+        for (int y = -1; y <= SIZE_Y; ++y)
+            for (int z = -1; z <= SIZE_Z; ++z)
+                borderBuf[x + 1][y + 1][z + 1] = fetchNeighborBlock(x, y, z);
+
     auto emitTallGrass = [&](int x, int y, int z)
         {
             if (blocks[x][y][z] != TALL_GRASS)
@@ -615,18 +636,7 @@ void Chunk::GenerateMeshData()
                 emitTallGrass(x, y, z);
 
     auto getBlock = [&](int x, int y, int z) -> BlockType {
-        Chunk* c = this;
-
-        if (x < 0) { c = c->neighborNX; if (!c) return AIR; x += SIZE_X; }
-        else if (x >= SIZE_X) { c = c->neighborPX; if (!c) return AIR; x -= SIZE_X; }
-
-        if (y < 0) { c = c->neighborNY; if (!c) return AIR; y += SIZE_Y; }
-        else if (y >= SIZE_Y) { c = c->neighborPY; if (!c) return AIR; y -= SIZE_Y; }
-
-        if (z < 0) { c = c->neighborNZ; if (!c) return AIR; z += SIZE_Z; }
-        else if (z >= SIZE_Z) { c = c->neighborPZ; if (!c) return AIR; z -= SIZE_Z; }
-        
-        return c->blocks[x][y][z];
+        return borderBuf[x + 1][y + 1][z + 1];
         };
 
     auto getTile = [&](BlockType type, int direction) -> int {
@@ -685,16 +695,45 @@ void Chunk::GenerateMeshData()
         bool empty() const { return tileID < 0; }
     };
 
+    int gen = 0;
+    int usedXZ[SIZE_X][SIZE_Z] = {};
+    int usedZY[SIZE_Z][SIZE_Y] = {};
+    int usedXY[SIZE_X][SIZE_Y] = {};
+
+    bool columnHasBlock[SIZE_X][SIZE_Z] = {};
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+            for (int y = 0; y < SIZE_Y; y++)
+                if (blocks[x][y][z] != AIR) { columnHasBlock[x][z] = true; break; }
+
+    int minBlockY[SIZE_X][SIZE_Z]{}, maxBlockY[SIZE_X][SIZE_Z]{};
+    for (int x = 0; x < SIZE_X; x++)
+        for (int z = 0; z < SIZE_Z; z++)
+        {
+            minBlockY[x][z] = SIZE_Y;
+            maxBlockY[x][z] = -1;
+            for (int y = 0; y < SIZE_Y; y++)
+                if (blocks[x][y][z] != AIR)
+                {
+                    if (y < minBlockY[x][z]) minBlockY[x][z] = y;
+                    if (y > maxBlockY[x][z]) maxBlockY[x][z] = y;
+                }
+        }
+
     // +Y (top faces)
     for (int y = 0; y < SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
-        bool     used[SIZE_X][SIZE_Z];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int x = 0; x < SIZE_X; x++)
             for (int z = 0; z < SIZE_Z; z++)
             {
+                if (y < minBlockY[x][z] || y > maxBlockY[x][z])
+                {
+                    mask[x][z].tileID = -1; continue;
+                }
+
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
                 BlockType above = getBlock(x, y + 1, z);
@@ -715,24 +754,24 @@ void Chunk::GenerateMeshData()
         for (int x = 0; x < SIZE_X; x++)
             for (int z = 0; z < SIZE_Z; z++)
             {
-                if (used[x][z] || mask[x][z].empty()) continue;
+                if (usedXZ[x][z] == gen || mask[x][z].empty()) continue;
                 MaskCell& ref = mask[x][z];
 
                 int dz = 1;
-                while (z + dz < SIZE_Z && !used[x][z + dz] && mask[x][z + dz] == ref) dz++;
+                while (z + dz < SIZE_Z && usedXZ[x][z + dz] != gen && mask[x][z + dz] == ref) dz++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {
                     bool ok = true;
                     for (int k = 0; k < dz; k++)
-                        if (used[x + dx][z + k] || !(mask[x + dx][z + k] == ref)) { ok = false; break; }
+                        if (usedXZ[x + dx][z + k] == gen || !(mask[x + dx][z + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dx++;
                 }
 
                 for (int ix = 0; ix < dx; ix++)
                     for (int iz = 0; iz < dz; iz++)
-                        used[x + ix][z + iz] = true;
+                        usedXZ[x + ix][z + iz] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
@@ -750,12 +789,16 @@ void Chunk::GenerateMeshData()
     for (int y = 0; y < SIZE_Y; y++)
     {
         MaskCell mask[SIZE_X][SIZE_Z];
-        bool     used[SIZE_X][SIZE_Z];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int x = 0; x < SIZE_X; x++)
             for (int z = 0; z < SIZE_Z; z++)
             {
+                if (y < minBlockY[x][z] || y > maxBlockY[x][z])
+                {
+                    mask[x][z].tileID = -1; continue;
+                }
+
                 MaskCell& cell = mask[x][z];
                 BlockType cur = getBlock(x, y, z);
                 BlockType below = getBlock(x, y - 1, z);
@@ -776,24 +819,24 @@ void Chunk::GenerateMeshData()
         for (int x = 0; x < SIZE_X; x++)
             for (int z = 0; z < SIZE_Z; z++)
             {
-                if (used[x][z] || mask[x][z].empty()) continue;
+                if (usedXZ[x][z] == gen || mask[x][z].empty()) continue;
                 MaskCell& ref = mask[x][z];
 
                 int dz = 1;
-                while (z + dz < SIZE_Z && !used[x][z + dz] && mask[x][z + dz] == ref) dz++;
+                while (z + dz < SIZE_Z && usedXZ[x][z + dz] != gen && mask[x][z + dz] == ref) dz++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {
                     bool ok = true;
                     for (int k = 0; k < dz; k++)
-                        if (used[x + dx][z + k] || !(mask[x + dx][z + k] == ref)) { ok = false; break; }
+                        if (usedXZ[x + dx][z + k] == gen || !(mask[x + dx][z + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dx++;
                 }
 
                 for (int ix = 0; ix < dx; ix++)
                     for (int iz = 0; iz < dz; iz++)
-                        used[x + ix][z + iz] = true;
+                        usedXZ[x + ix][z + iz] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
@@ -811,10 +854,15 @@ void Chunk::GenerateMeshData()
     for (int x = 0; x < SIZE_X; x++)
     {
         MaskCell mask[SIZE_Z][SIZE_Y];
-        bool     used[SIZE_Z][SIZE_Y];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int z = 0; z < SIZE_Z; z++)
+        {
+            if (!columnHasBlock[x][z]) {
+                for (int y = 0; y < SIZE_Y; y++) mask[z][y].tileID = -1;
+                continue;
+            }
+
             for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[z][y];
@@ -833,28 +881,29 @@ void Chunk::GenerateMeshData()
                 }
                 else cell.tileID = -1;
             }
+        }
 
         for (int z = 0; z < SIZE_Z; z++)
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (used[z][y] || mask[z][y].empty()) continue;
+                if (usedZY[z][y] == gen || mask[z][y].empty()) continue;
                 MaskCell& ref = mask[z][y];
 
                 int dy = 1;
-                while (y + dy < SIZE_Y && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && usedZY[z][y + dy] != gen && mask[z][y + dy] == ref) dy++;
 
                 int dz = 1;
                 while (z + dz < SIZE_Z) {
                     bool ok = true;
                     for (int k = 0; k < dy; k++)
-                        if (used[z + dz][y + k] || !(mask[z + dz][y + k] == ref)) { ok = false; break; }
+                        if (usedZY[z + dz][y + k] == gen || !(mask[z + dz][y + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dz++;
                 }
 
                 for (int iz = 0; iz < dz; iz++)
                     for (int iy = 0; iy < dy; iy++)
-                        used[z + iz][y + iy] = true;
+                        usedZY[z + iz][y + iy] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
@@ -873,10 +922,15 @@ void Chunk::GenerateMeshData()
     for (int x = 0; x < SIZE_X; x++)
     {
         MaskCell mask[SIZE_Z][SIZE_Y];
-        bool     used[SIZE_Z][SIZE_Y];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int z = 0; z < SIZE_Z; z++)
+        {
+            if (!columnHasBlock[x][z]) {
+                for (int y = 0; y < SIZE_Y; y++) mask[z][y].tileID = -1;
+                continue;
+            }
+
             for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[z][y];
@@ -895,28 +949,29 @@ void Chunk::GenerateMeshData()
                 }
                 else cell.tileID = -1;
             }
+        }
 
         for (int z = 0; z < SIZE_Z; z++)
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (used[z][y] || mask[z][y].empty()) continue;
+                if (usedZY[z][y] == gen || mask[z][y].empty()) continue;
                 MaskCell& ref = mask[z][y];
 
                 int dy = 1;
-                while (y + dy < SIZE_Y && !used[z][y + dy] && mask[z][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && usedZY[z][y + dy] != gen && mask[z][y + dy] == ref) dy++;
 
                 int dz = 1;
                 while (z + dz < SIZE_Z) {
                     bool ok = true;
                     for (int k = 0; k < dy; k++)
-                        if (used[z + dz][y + k] || !(mask[z + dz][y + k] == ref)) { ok = false; break; }
+                        if (usedZY[z + dz][y + k] == gen || !(mask[z + dz][y + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dz++;
                 }
 
                 for (int iz = 0; iz < dz; iz++)
                     for (int iy = 0; iy < dy; iy++)
-                        used[z + iz][y + iy] = true;
+                        usedZY[z + iz][y + iy] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
@@ -935,10 +990,15 @@ void Chunk::GenerateMeshData()
     for (int z = 0; z < SIZE_Z; z++)
     {
         MaskCell mask[SIZE_X][SIZE_Y];
-        bool     used[SIZE_X][SIZE_Y];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int x = 0; x < SIZE_X; x++)
+        {
+            if (!columnHasBlock[x][z]) {
+                for (int y = 0; y < SIZE_Y; y++) mask[x][y].tileID = -1;
+                continue;
+            }
+
             for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[x][y];
@@ -957,28 +1017,29 @@ void Chunk::GenerateMeshData()
                 }
                 else cell.tileID = -1;
             }
+        }
 
         for (int x = 0; x < SIZE_X; x++)
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (used[x][y] || mask[x][y].empty()) continue;
+                if (usedXY[x][y] == gen || mask[x][y].empty()) continue;
                 MaskCell& ref = mask[x][y];
 
                 int dy = 1;
-                while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && usedXY[x][y + dy] != gen && mask[x][y + dy] == ref) dy++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {
                     bool ok = true;
                     for (int k = 0; k < dy; k++)
-                        if (used[x + dx][y + k] || !(mask[x + dx][y + k] == ref)) { ok = false; break; }
+                        if (usedXY[x + dx][y + k] == gen || !(mask[x + dx][y + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dx++;
                 }
 
                 for (int ix = 0; ix < dx; ix++)
                     for (int iy = 0; iy < dy; iy++)
-                        used[x + ix][y + iy] = true;
+                        usedXY[x + ix][y + iy] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
@@ -997,10 +1058,15 @@ void Chunk::GenerateMeshData()
     for (int z = 0; z < SIZE_Z; z++)
     {
         MaskCell mask[SIZE_X][SIZE_Y];
-        bool     used[SIZE_X][SIZE_Y];
-        memset(used, 0, sizeof(used));
+        ++gen;
 
         for (int x = 0; x < SIZE_X; x++)
+        {
+            if (!columnHasBlock[x][z]) {
+                for (int y = 0; y < SIZE_Y; y++) mask[x][y].tileID = -1;
+                continue;
+            }
+
             for (int y = 0; y < SIZE_Y; y++)
             {
                 MaskCell& cell = mask[x][y];
@@ -1019,28 +1085,29 @@ void Chunk::GenerateMeshData()
                 }
                 else cell.tileID = -1;
             }
+        }
 
         for (int x = 0; x < SIZE_X; x++)
             for (int y = 0; y < SIZE_Y; y++)
             {
-                if (used[x][y] || mask[x][y].empty()) continue;
+                if (usedXY[x][y] == gen || mask[x][y].empty()) continue;
                 MaskCell& ref = mask[x][y];
 
                 int dy = 1;
-                while (y + dy < SIZE_Y && !used[x][y + dy] && mask[x][y + dy] == ref) dy++;
+                while (y + dy < SIZE_Y && usedXY[x][y + dy] != gen && mask[x][y + dy] == ref) dy++;
 
                 int dx = 1;
                 while (x + dx < SIZE_X) {
                     bool ok = true;
                     for (int k = 0; k < dy; k++)
-                        if (used[x + dx][y + k] || !(mask[x + dx][y + k] == ref)) { ok = false; break; }
+                        if (usedXY[x + dx][y + k] == gen || !(mask[x + dx][y + k] == ref)) { ok = false; break; }
                     if (!ok) break;
                     dx++;
                 }
 
                 for (int ix = 0; ix < dx; ix++)
                     for (int iy = 0; iy < dy; iy++)
-                        used[x + ix][y + iy] = true;
+                        usedXY[x + ix][y + iy] = gen;
 
                 BlockType cur = getBlock(x, y, z);
                 RenderGroup group = GetRenderGroup(cur);
