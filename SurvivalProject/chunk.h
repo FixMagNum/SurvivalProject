@@ -49,17 +49,17 @@ struct MeshBucket
 class Chunk
 {
 public:
-	World* world;  // указатель на мир, к которому принадлежит чанк
+    World* world;  // указатель на мир, к которому принадлежит чанк
     AABB bounds;
 
-	// Размеры чанка
+    // Размеры чанка
     static const int SIZE_X = 16;
     static const int SIZE_Y = 16;
     static const int SIZE_Z = 16;
 
     int minY = 0;
     int maxY = SIZE_Y - 1;
-        
+
     Chunk* neighborPX = nullptr;
     Chunk* neighborNX = nullptr;
     Chunk* neighborPZ = nullptr;
@@ -71,8 +71,13 @@ public:
 
     std::atomic<ChunkState> state{ ChunkState::Empty };
     std::atomic<bool> needsRebuild{ false }; // сосед достроился — перестроить наш меш
-    
+
     std::map<std::tuple<int, int, int>, BlockType> modifiedBlocks;
+
+    // Блоки структур (деревья и т.п.), вышедшие за границы чанка при Generate().
+    // Заполняется в Generate(), читается и очищается в World::ScheduleChunk()
+    struct GhostBlock { int wx, wy, wz; BlockType type; };
+    std::vector<GhostBlock> generatedGhostBlocks;
 
     std::vector<PackedVertex> vertices;
     std::vector<uint32_t>     indices;
@@ -80,7 +85,7 @@ public:
     std::array<MeshBucket, (size_t)RenderGroup::Count> meshGroups;
 
     Chunk(int chunkX, int chunkY, int chunkZ, World* worldPtr);
-    
+
     BlockType blocks[SIZE_X][SIZE_Y][SIZE_Z];
 
     void Generate();

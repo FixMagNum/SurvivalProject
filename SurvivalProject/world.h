@@ -31,6 +31,12 @@ struct RaycastResult {
     int   normalX = 0, normalY = 0, normalZ = 0; // нормаль грани (куда ставить блок)
 };
 
+// Блок-призрак: локальные координаты + тип блока для чанка-получателя
+struct PendingBlock {
+    int lx, ly, lz;
+    BlockType type;
+};
+
 // Простой thread pool — N рабочих потоков берут задачи из очереди
 class ThreadPool {
 public:
@@ -57,7 +63,7 @@ class World {
 public:
     World();
     ~World();
-    
+
     // Радиус подгрузки в чанках
     static const int LOAD_RADIUS = 12;
     // Чанки дальше UNLOAD_RADIUS удаляются (ставьте с запасом, если чанки мигают)
@@ -68,7 +74,7 @@ public:
     // Главный метод — вызывать каждый кадр из main
     // playerChunkX/Z — позиция игрока в чанковых координатах
     void Update(int playerChunkX, int playerChunkY, int playerChunkZ, glm::vec3 cameraFront);
-    
+
     void UnloadDistantChunks(int playerChunkX, int playerChunkY, int playerChunkZ);
 
     // Загружает на GPU чанки со статусом MeshReady (вызывать из main thread)
@@ -90,6 +96,12 @@ public:
 
 private:
     ThreadPool threadPool;
+
+    // Призрачные блоки структур: блоки, вышедшие за границу генерирующего чанка.
+    // Ключ - чанк-получатель; значение - список блоков с локальными координатами.
+    // Применяются к чанку-получателю сразу после его Generate()
+    std::mutex ghostBlocksMutex;
+    std::unordered_map<ChunkKey, std::vector<PendingBlock>, ChunkKeyHash> ghostBlocks;
 
     // Запускает генерацию + построение меша для чанка в рабочем потоке
     void ScheduleChunk(int cx, int cy, int cz);

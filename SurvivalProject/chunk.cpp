@@ -4,6 +4,7 @@
 #include "block.h"
 #include "FastNoiseLite.h"
 #include <algorithm>
+#include <cstring>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
 
@@ -365,11 +366,6 @@ void Chunk::Generate()
             int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
             trunkHeight = std::clamp(trunkHeight, 4, 6);
 
-            // Временно: ограничиваем высоту дерева чтобы листья не вышли за границу чанка
-            int maxTrunk = SIZE_Y - localSurface - 6; // 6 блоков запас под листья
-            trunkHeight = std::min(trunkHeight, maxTrunk);
-            if (trunkHeight < 3) continue; // слишком мало места — не сажаем
-
             // Проверяем есть ли дерево рядом (радиус 3 блока)
             bool treeNearby = false;
             for (int dx = -3; dx <= 3 && !treeNearby; dx++)
@@ -378,49 +374,47 @@ void Chunk::Generate()
                     int bx = x + dx;
                     int bz = z + dz;
                     if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    int localCheck = surfaceY - worldChunkY + 1;
-                    if (localCheck >= 0 && localCheck < SIZE_Y)
-                        if (blocks[bx][localCheck][bz] == OAK_LOG) treeNearby = true;
+                    for (int y = 0; y < SIZE_Y && !treeNearby; y++)
+                        if (blocks[bx][y][bz] == OAK_LOG) treeNearby = true;
                 }
 
             if (treeNearby) continue;
 
+            // Вспомогательная функция: ставит блок по локальным координатам.
+            // Если координаты выходят за границу чанка - сохраняет блок как ghost,
+            // чтобы он был применён к соседнему чанку когда тот сгенерируется
+            auto placeBlock = [&](int lx, int ly, int lz, BlockType type) {
+                if (lx >= 0 && lx < SIZE_X && ly >= 0 && ly < SIZE_Y && lz >= 0 && lz < SIZE_Z)
+                {
+                    if (blocks[lx][ly][lz] == AIR)
+                        blocks[lx][ly][lz] = type;
+                }
+                else
+                {
+                    int wx = lx + chunkPos.x * SIZE_X;
+                    int wy = ly + worldChunkY;
+                    int wz = lz + chunkPos.z * SIZE_Z;
+                    generatedGhostBlocks.push_back({ wx, wy, wz, type });
+                }
+            };
+
             // Ствол
             for (int t = 1; t <= trunkHeight; t++)
-            {
-                int localY = localSurface + t;
-                if (localY >= SIZE_Y) break;
-                blocks[x][localY][z] = OAK_LOG;
-            }
+                placeBlock(x, localSurface + t, z, OAK_LOG);
 
             // Листья
             int leafBase = localSurface + trunkHeight - 1;
             for (int ly = leafBase; ly <= leafBase + 2; ly++)
-                for (int lx = -2; lx <= 2; lx++)
-                    for (int lz = -2; lz <= 2; lz++)
-                    {
-                        int bx = x + lx, bz = z + lz;
-                        if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                        if (ly < 0 || ly >= SIZE_Y) continue;
-                        if (blocks[bx][ly][bz] == AIR)
-                            blocks[bx][ly][bz] = OAK_LEAVES;
-                    }
+                for (int dx = -2; dx <= 2; dx++)
+                    for (int dz = -2; dz <= 2; dz++)
+                        placeBlock(x + dx, ly, z + dz, OAK_LEAVES);
 
             // Верхушка
-            for (int lx = -1; lx <= 1; lx++)
-                for (int lz = -1; lz <= 1; lz++)
-                {
-                    int bx = x + lx, bz = z + lz;
-                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    int ly = leafBase + 3;
-                    if (ly >= SIZE_Y) continue;
-                    if (blocks[bx][ly][bz] == AIR)
-                        blocks[bx][ly][bz] = OAK_LEAVES;
-                }
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                    placeBlock(x + dx, leafBase + 3, z + dz, OAK_LEAVES);
 
-            int apex = leafBase + 4;
-            if (apex < SIZE_Y && blocks[x][apex][z] == AIR)
-                blocks[x][apex][z] = OAK_LEAVES;
+            placeBlock(x, leafBase + 4, z, OAK_LEAVES);
         }
     }
 
@@ -594,8 +588,7 @@ void Chunk::GenerateMeshData()
             for (int z = -1; z <= SIZE_Z; ++z)
                 borderBuf[x + 1][y + 1][z + 1] = fetchNeighborBlock(x, y, z);
 
-    auto emitTallGrass = [&](int x, int y, int z)
-        {
+    auto emitTallGrass = [&](int x, int y, int z) {
             if (blocks[x][y][z] != TALL_GRASS)
                 return;
 

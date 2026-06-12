@@ -128,6 +128,18 @@ void World::ScheduleChunk(int cx, int cy, int cz)
     threadPool.Enqueue([this, chunk, cx, cy, cz] {
         chunk->Generate();
 
+        // Применяем призрачные блоки от уже сгенерированных соседей
+        {
+            std::lock_guard<std::mutex> lock(ghostBlocksMutex);
+            auto it = ghostBlocks.find({ cx, cy, cz });
+            if (it != ghostBlocks.end()) {
+                for (auto& pb : it->second)
+                    if (chunk->blocks[pb.lx][pb.ly][pb.lz] == AIR)
+                        chunk->blocks[pb.lx][pb.ly][pb.lz] = pb.type;
+                ghostBlocks.erase(it);
+            }
+        }
+
         // Накладываем уже загруженную дельту поверх сгенерированных блоков
         for (auto& [key, type] : chunk->modifiedBlocks)
         {
@@ -139,8 +151,9 @@ void World::ScheduleChunk(int cx, int cy, int cz)
 
         chunk->state.store(ChunkState::Generated);
 
+        // распределяем ghost-блоки этого чанка соседям
         {
-            std::lock_guard<std::mutex> lock(chunkMapMutex);
+            std::lock_guard<std::mutex> mapLock(chunkMapMutex);
             LinkNeighbors(chunk);
 
             auto markRebuild = [](Chunk* neighbor) {
@@ -162,7 +175,40 @@ void World::ScheduleChunk(int cx, int cy, int cz)
             markRebuild(chunk->neighborNY);
             markRebuild(chunk->neighborPZ);
             markRebuild(chunk->neighborNZ);
+
+            if (!chunk->generatedGhostBlocks.empty()) {
+                std::lock_guard<std::mutex> ghostLock(ghostBlocksMutex);
+
+                for (auto& ghost : chunk->generatedGhostBlocks) {
+                    int gCX = (int)std::floor((float)ghost.wx / Chunk::SIZE_X);
+                    int gCY = (int)std::floor((float)ghost.wy / Chunk::SIZE_Y);
+                    int gCZ = (int)std::floor((float)ghost.wz / Chunk::SIZE_Z);
+                    int lx = ghost.wx - gCX * Chunk::SIZE_X;
+                    int ly = ghost.wy - gCY * Chunk::SIZE_Y;
+                    int lz = ghost.wz - gCZ * Chunk::SIZE_Z;
+
+                    auto nit = chunkMap.find({ gCX, gCY, gCZ });
+                    if (nit != chunkMap.end()) {
+                        auto s = nit->second->state.load();
+                        if (s != ChunkState::Empty && s != ChunkState::Generating) {
+                            // Чанк уже сгенерирован - пишем напрямую
+                            if (nit->second->blocks[lx][ly][lz] == AIR)
+                                nit->second->blocks[lx][ly][lz] = ghost.type;
+                            if (s == ChunkState::Uploaded ||
+                                s == ChunkState::MeshBuilding ||
+                                s == ChunkState::MeshReady)
+                                nit->second->needsRebuild.store(true);
+                            continue;
+                        }
+                    }
+
+                    // Сосед ещё не готов - сохраняем, он подберёт при своём Generate()
+                    ghostBlocks[{ gCX, gCY, gCZ }].push_back({ lx, ly, lz, ghost.type });
+                }
+            }
         }
+
+        chunk->generatedGhostBlocks.clear();
         });
 }
 

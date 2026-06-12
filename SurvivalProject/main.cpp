@@ -132,7 +132,12 @@ float getStaticFaceLight(vec3 n)
 
 vec4 sampleAnimatedWater()
 {
-    vec2 localUV = fract(TexCoord) * TILE_SIZE;
+    float vScroll = 0.0;
+    if (uAnimateWater && abs(Normal.y) < 0.5)
+        vScroll = fract(uTime * 1.5);
+
+    vec2 normalizedUV = fract(TexCoord + vec2(0.0, +vScroll));
+    vec2 localUV = normalizedUV * TILE_SIZE;
 
     if (!uAnimateWater)
         return texture(texture1, TileOffset + localUV);
