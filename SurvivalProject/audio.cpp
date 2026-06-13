@@ -181,6 +181,7 @@ void Audio::LoadSounds()
     blockSounds[OAK_LEAVES].breakSounds  = LoadOggsFromFolder("Assets/sounds/plant");
     blockSounds[POOP].breakSounds        = LoadOggsFromFolder("Assets/sounds/poop");
     blockSounds[TALL_GRASS].breakSounds  = LoadOggsFromFolder("Assets/sounds/plant");
+    blockSounds[RED_FLOWER].breakSounds  = LoadOggsFromFolder("Assets/sounds/plant");
 
     // Player
     playerSounds.hurtSounds = LoadOggsFromFolder("Assets/sounds/player/hurt");

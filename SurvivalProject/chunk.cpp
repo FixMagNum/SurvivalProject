@@ -18,23 +18,24 @@ static int Tile(int x, int y)
 
 BlockData blockDatabase[] =
 {
-	// TOP,        BOTTOM,      SIDE
+    // TOP,        BOTTOM,      SIDE
     { 0, 0, 0 },                                  // AIR
-    { Tile(0,15),  Tile(2,15),  Tile(3,15) },     // GRASS
+    { Tile(0,15),  Tile(0,15),  Tile(0,15) },     // GRASS
     { Tile(2,15),  Tile(2,15),  Tile(2,15) },     // DIRT
     { Tile(1,15),  Tile(1,15),  Tile(1,15) },     // STONE
     { Tile(4,15),  Tile(4,15),  Tile(4,15) },     // OAK_PLANKS
     { Tile(3,11),  Tile(3,11),  Tile(3,11) },     // GLASS
     { Tile(12,3),  Tile(12,3),  Tile(12,3) },     // WATER
-	{ Tile(5,14),  Tile(5,14),  Tile(4,14) },     // OAK_LOG
+    { Tile(5,14),  Tile(5,14),  Tile(4,14) },     // OAK_LOG
     { Tile(4,12),  Tile(4,12),  Tile(4,12) },     // OAK_LEAVES
     { Tile(2,14),  Tile(2,14),  Tile(2,14) },     // SAND
-	{ Tile(2,11),  Tile(2,11),  Tile(2,11) },     // SNOW
+    { Tile(2,11),  Tile(2,11),  Tile(2,11) },     // SNOW
     { Tile(1,6),   Tile(1,6),   Tile(1,6) },      // BEDROCK
     { Tile(0,14),  Tile(0,14),  Tile(0,14) },     // COBBLESTONE
     { Tile(9,0),   Tile(9,0),   Tile(9,0) },      // POOP
-	{ Tile(6,15),  Tile(6,15),  Tile(6,15) },     // BASALT
-	{ Tile(5,10),  Tile(5,10),  Tile(5,10) },     // TALL_GRASS
+    { Tile(6,15),  Tile(6,15),  Tile(6,15) },     // BASALT
+    { Tile(5,10),  Tile(5,10),  Tile(5,10) },     // TALL_GRASS
+    { Tile(12,15), Tile(12,15), Tile(12,15) },    // RED_FLOWER
 };
 
 static inline bool IsTransparentGroup(RenderGroup g)
@@ -68,7 +69,7 @@ static inline bool TransparentFaceVisible(BlockType cur, BlockType neighbor)
 
 static inline bool FaceVisible(BlockType cur, BlockType neighbor)
 {
-    if (cur == AIR || cur == TALL_GRASS) return false;
+    if (cur == AIR || cur == TALL_GRASS || cur == RED_FLOWER) return false;
     if (neighbor == AIR) return true;
 
     RenderGroup gc = GetRenderGroup(cur);
@@ -336,86 +337,100 @@ void Chunk::Generate()
         }
     }
 
-    // Деревья — только если чанк содержит поверхность
-    for (int x = 2; x < SIZE_X - 2; x++)
+    // Деревья
     {
-        for (int z = 2; z < SIZE_Z - 2; z++)
-        {
-            float worldX = x + chunkPos.x * SIZE_X;
-            float worldZ = z + chunkPos.z * SIZE_Z;
+        static constexpr int TREE_CELL = 8;
+        static constexpr int TREE_JITTER = 5;
 
-            float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
-            if (biomeVal < -0.3f || biomeVal > 0.6f) continue;
+        const int chunkWX = chunkPos.x * SIZE_X;
+        const int chunkWZ = chunkPos.z * SIZE_Z;
 
-            float noiseVal = noise.GetNoise(worldX, worldZ);
-            int surfaceY;
-            if (biomeVal < 0.3f) surfaceY = (int)(120.0f + noiseVal * 20.0f);
-            else                  surfaceY = (int)(120.0f + noiseVal * 25.0f);
-            surfaceY = std::clamp(surfaceY, 1, 500);
+        // Ячейки, чьи позиции (с учётом джиттера) могут попасть в этот чанк
+        const int gx0 = (int)std::floor((float)(chunkWX - TREE_JITTER) / TREE_CELL) - 1;
+        const int gx1 = (int)std::floor((float)(chunkWX + SIZE_X + TREE_JITTER) / TREE_CELL) + 1;
+        const int gz0 = (int)std::floor((float)(chunkWZ - TREE_JITTER) / TREE_CELL) - 1;
+        const int gz1 = (int)std::floor((float)(chunkWZ + SIZE_Z + TREE_JITTER) / TREE_CELL) + 1;
 
-            // Проверяем что поверхность находится в этом чанке
-            int localSurface = surfaceY - worldChunkY;
-            if (localSurface < 0 || localSurface >= SIZE_Y) continue;
-            if (blocks[x][localSurface][z] != GRASS) continue;
-            if (surfaceY <= 110) continue;
+        for (int gx = gx0; gx <= gx1; gx++)
+            for (int gz = gz0; gz <= gz1; gz++)
+            {
+                // Детерминированный PCG-хэш для ячейки (gx, gz)
+                uint32_t h = (uint32_t)(gx * 374761393 + gz * 668265263 + 42 * 3571);
+                h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
 
-            float treeVal = treeNoise.GetNoise(worldX, worldZ);
-            float treeThreshold = (biomeVal > 0.3f) ? 0.3f : 0.6f;
-            if (treeVal < treeThreshold) continue;
+                // Позиция = центр ячейки + случайный джиттер [-JITTER .. +JITTER]
+                const int cellCX = gx * TREE_CELL + TREE_CELL / 2;
+                const int cellCZ = gz * TREE_CELL + TREE_CELL / 2;
+                const int wx = cellCX + (int)((h & 0xFFu) % (uint32_t)(TREE_JITTER * 2 + 1)) - TREE_JITTER;
+                const int wz = cellCZ + (int)(((h >> 8) & 0xFFu) % (uint32_t)(TREE_JITTER * 2 + 1)) - TREE_JITTER;
 
-            int trunkHeight = 4 + (int)((treeVal - treeThreshold) * 10.0f);
-            trunkHeight = std::clamp(trunkHeight, 4, 6);
+                // Позиция должна принадлежать именно этому чанку
+                const int lx = wx - chunkWX;
+                const int lz = wz - chunkWZ;
+                if (lx < 0 || lx >= SIZE_X || lz < 0 || lz >= SIZE_Z) continue;
 
-            // Проверяем есть ли дерево рядом (радиус 3 блока)
-            bool treeNearby = false;
-            for (int dx = -3; dx <= 3 && !treeNearby; dx++)
-                for (int dz = -3; dz <= 3 && !treeNearby; dz++)
-                {
-                    int bx = x + dx;
-                    int bz = z + dz;
-                    if (bx < 0 || bx >= SIZE_X || bz < 0 || bz >= SIZE_Z) continue;
-                    for (int y = 0; y < SIZE_Y && !treeNearby; y++)
-                        if (blocks[bx][y][bz] == OAK_LOG) treeNearby = true;
-                }
+                const float worldX = (float)wx;
+                const float worldZ = (float)wz;
 
-            if (treeNearby) continue;
+                // Биом: равнина и лес
+                float biomeVal = biomeNoise.GetNoise(worldX, worldZ);
+                if (biomeVal < -0.3f || biomeVal > 0.6f) continue;
 
-            // Вспомогательная функция: ставит блок по локальным координатам.
-            // Если координаты выходят за границу чанка - сохраняет блок как ghost,
-            // чтобы он был применён к соседнему чанку когда тот сгенерируется
-            auto placeBlock = [&](int lx, int ly, int lz, BlockType type) {
-                if (lx >= 0 && lx < SIZE_X && ly >= 0 && ly < SIZE_Y && lz >= 0 && lz < SIZE_Z)
-                {
-                    if (blocks[lx][ly][lz] == AIR)
-                        blocks[lx][ly][lz] = type;
-                }
-                else
-                {
-                    int wx = lx + chunkPos.x * SIZE_X;
-                    int wy = ly + worldChunkY;
-                    int wz = lz + chunkPos.z * SIZE_Z;
-                    generatedGhostBlocks.push_back({ wx, wy, wz, type });
-                }
-            };
+                float density = treeNoise.GetNoise((float)cellCX, (float)cellCZ);
+                float densThreshold = (biomeVal > 0.3f) ? 0.0f : 0.45f;
+                if (density < densThreshold) continue;
 
-            // Ствол
-            for (int t = 1; t <= trunkHeight; t++)
-                placeBlock(x, localSurface + t, z, OAK_LOG);
+                // Поверхность в позиции дерева
+                float noiseVal = noise.GetNoise(worldX, worldZ);
+                int surfaceY = (biomeVal < 0.3f)
+                    ? (int)(120.0f + noiseVal * 20.0f)
+                    : (int)(120.0f + noiseVal * 25.0f);
+                surfaceY = std::clamp(surfaceY, 1, 500);
 
-            // Листья
-            int leafBase = localSurface + trunkHeight - 1;
-            for (int ly = leafBase; ly <= leafBase + 2; ly++)
-                for (int dx = -2; dx <= 2; dx++)
-                    for (int dz = -2; dz <= 2; dz++)
-                        placeBlock(x + dx, ly, z + dz, OAK_LEAVES);
+                // Проверяем что поверхность находится в этом чанке
+                int localSurface = surfaceY - worldChunkY;
+                if (localSurface < 0 || localSurface >= SIZE_Y) continue;
+                if (blocks[lx][localSurface][lz] != GRASS) continue;
+                if (surfaceY <= 110) continue;
 
-            // Верхушка
-            for (int dx = -1; dx <= 1; dx++)
-                for (int dz = -1; dz <= 1; dz++)
-                    placeBlock(x + dx, leafBase + 3, z + dz, OAK_LEAVES);
+                // Размещение блока: в чанке напрямую, за границей - ghost block
+                auto placeBlock = [&](int bx, int by, int bz, BlockType type) {
+                    if (bx >= 0 && bx < SIZE_X && by >= 0 && by < SIZE_Y && bz >= 0 && bz < SIZE_Z) {
+                        BlockType cur = blocks[bx][by][bz];
+                        if (cur == AIR || (type == OAK_LOG && cur == OAK_LEAVES))
+                            blocks[bx][by][bz] = type;
+                    }
+                    else {
+                        generatedGhostBlocks.push_back({
+                            bx + chunkPos.x * SIZE_X,
+                            by + worldChunkY,
+                            bz + chunkPos.z * SIZE_Z,
+                            type
+                            });
+                    }
+                    };
 
-            placeBlock(x, leafBase + 4, z, OAK_LEAVES);
-        }
+                // Высота ствола 4-6
+                int trunkHeight = 4 + (int)((h >> 24) % 3u);
+                
+                // Ствол
+                for (int t = 1; t <= trunkHeight; t++)
+                    placeBlock(lx, localSurface + t, lz, OAK_LOG);
+                
+                // Листья
+                int leafBase = localSurface + trunkHeight - 1;
+                for (int ly = leafBase; ly <= leafBase + 2; ly++)
+                    for (int dx = -2; dx <= 2; dx++)
+                        for (int dz = -2; dz <= 2; dz++)
+                            placeBlock(lx + dx, ly, lz + dz, OAK_LEAVES);
+                
+                // Верхушка
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                        placeBlock(lx + dx, leafBase + 3, lz + dz, OAK_LEAVES);
+
+                placeBlock(lx, leafBase + 4, lz, OAK_LEAVES);
+            }
     }
 
     // Высокая трава
@@ -424,6 +439,12 @@ void Chunk::Generate()
     grassNoise.SetFrequency(0.88f);
     grassNoise.SetSeed(2468);
 
+    // Цветы
+    FastNoiseLite flowerNoise;
+    flowerNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    flowerNoise.SetFrequency(0.88f);
+    flowerNoise.SetSeed(97531);
+
     for (int x = 1; x < SIZE_X - 1; ++x)
     {
         for (int z = 1; z < SIZE_Z - 1; ++z)
@@ -431,21 +452,29 @@ void Chunk::Generate()
             float worldX = x + chunkPos.x * SIZE_X;
             float worldZ = z + chunkPos.z * SIZE_Z;
 
-            // Редкость спавна
-            float g = grassNoise.GetNoise(worldX, worldZ);
-            if (g < 0.45f)
-                continue;
+            float grassValue = grassNoise.GetNoise(worldX, worldZ);
+            float flowerValue = flowerNoise.GetNoise(worldX, worldZ);
 
             // Ищем верхний блок в колонке
             for (int y = SIZE_Y - 2; y >= 0; --y)
             {
                 if (blocks[x][y][z] == AIR)
                     continue;
-
+                
                 // Ставим только на верхнюю поверхность травы
-                if (blocks[x][y][z] == GRASS && blocks[x][y + 1][z] == AIR)
+                if (blocks[x][y][z] == GRASS &&
+                    blocks[x][y + 1][z] == AIR)
                 {
-                    blocks[x][y + 1][z] = TALL_GRASS;
+                    // Цветы редкие
+                    if (flowerValue > 0.65f)
+                    {
+                        blocks[x][y + 1][z] = RED_FLOWER;
+                    }
+                    // Трава обычная
+                    else if (grassValue > 0.45f)
+                    {
+                        blocks[x][y + 1][z] = TALL_GRASS;
+                    }
                 }
 
                 break;
@@ -588,12 +617,14 @@ void Chunk::GenerateMeshData()
             for (int z = -1; z <= SIZE_Z; ++z)
                 borderBuf[x + 1][y + 1][z + 1] = fetchNeighborBlock(x, y, z);
 
-    auto emitTallGrass = [&](int x, int y, int z) {
-            if (blocks[x][y][z] != TALL_GRASS)
-                return;
+    auto emitVegetation = [&](int x, int y, int z)
+        {
+            BlockType plant = blocks[x][y][z];
 
-            int tileID = blockDatabase[TALL_GRASS].top;
-            RenderGroup group = GetRenderGroup(TALL_GRASS);
+            if (plant != TALL_GRASS && plant != RED_FLOWER) return;
+
+            int tileID = blockDatabase[plant].top;
+            RenderGroup group = GetRenderGroup(plant);
 
             // Две скрещенные плоскости, каждая продублирована с обратным winding
             AddQuad(glm::vec3(x, y, z),
@@ -602,6 +633,7 @@ void Chunk::GenerateMeshData()
                 tileID, false,
                 1.f, 1.f, 1.f, 1.f,
                 2, group, false);
+
             AddQuad(glm::vec3(x, y, z),
                 glm::vec3(1, 0, 1), 1,
                 glm::vec3(0, 1, 0), 1,
@@ -615,6 +647,7 @@ void Chunk::GenerateMeshData()
                 tileID, false,
                 1.f, 1.f, 1.f, 1.f,
                 4, group, false);
+
             AddQuad(glm::vec3(x + 1, y, z),
                 glm::vec3(-1, 0, 1), 1,
                 glm::vec3(0, 1, 0), 1,
@@ -626,7 +659,7 @@ void Chunk::GenerateMeshData()
     for (int x = 0; x < SIZE_X; ++x)
         for (int y = 0; y < SIZE_Y; ++y)
             for (int z = 0; z < SIZE_Z; ++z)
-                emitTallGrass(x, y, z);
+                emitVegetation(x, y, z);
 
     auto getBlock = [&](int x, int y, int z) -> BlockType {
         return borderBuf[x + 1][y + 1][z + 1];
@@ -641,7 +674,7 @@ void Chunk::GenerateMeshData()
         };
 
     auto isTransparent = [](BlockType b) -> bool {
-        return b == GLASS || b == WATER || b == OAK_LEAVES || b == TALL_GRASS;
+        return b == GLASS || b == WATER || b == OAK_LEAVES || b == TALL_GRASS || b == RED_FLOWER;
         };
 
     auto solid = [&](int x, int y, int z) -> int {

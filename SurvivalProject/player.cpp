@@ -16,7 +16,7 @@ Player::Player(glm::vec3 spawnPos)
 bool Player::IsSolid(int x, int y, int z, World& world)
 {
     BlockType b = world.GetBlock(x, y, z);
-    return b != AIR && b != WATER && b != TALL_GRASS;
+    return b != AIR && b != WATER && b != TALL_GRASS && b != RED_FLOWER;
 }
 
 Player::WaterInfo Player::SampleWater(World& world) const

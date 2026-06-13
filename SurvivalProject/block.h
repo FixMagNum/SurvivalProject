@@ -19,6 +19,7 @@ enum BlockType
 	POOP,
 	BASALT,
 	TALL_GRASS,
+	RED_FLOWER,
 };
 
 enum class RenderGroup : uint8_t
@@ -36,6 +37,7 @@ inline RenderGroup GetRenderGroup(BlockType b)
 	{
 	case OAK_LEAVES: return RenderGroup::Leaves;
 	case TALL_GRASS: return RenderGroup::Leaves;
+	case RED_FLOWER: return RenderGroup::Leaves;
 	case WATER:      return RenderGroup::Water;
 	case GLASS:      return RenderGroup::Glass;
 	default:         return RenderGroup::Opaque;

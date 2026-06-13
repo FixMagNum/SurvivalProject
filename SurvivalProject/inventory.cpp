@@ -37,7 +37,8 @@ static int GetTopTile(BlockType type)
     case COBBLESTONE: return tile(0,  14);
     case POOP:        return tile(9,  0);
     case BASALT:      return tile(6,  15);
-    case TALL_GRASS:  return tile(5, 10);
+    case TALL_GRASS:  return tile(5,  10);
+    case RED_FLOWER:  return tile(12, 15);
     default:          return -1;
     }
 }
