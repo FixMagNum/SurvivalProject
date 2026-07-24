@@ -133,9 +133,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="audio.cpp" />
-    <ClCompile Include="camera.cpp" />
-    <ClCompile Include="chunk.cpp" />
+    <ClCompile Include="src\audio.cpp" />
+    <ClCompile Include="src\camera.cpp" />
+    <ClCompile Include="src\chunk.cpp" />
     <ClCompile Include="D:\Libraries\glad\src\glad.c" />
     <ClCompile Include="D:\Libraries\imgui-1.92.6\backends\imgui_impl_glfw.cpp" />
     <ClCompile Include="D:\Libraries\imgui-1.92.6\backends\imgui_impl_opengl3.cpp" />
@@ -143,25 +143,29 @@
     <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_draw.cpp" />
     <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_tables.cpp" />
     <ClCompile Include="D:\Libraries\imgui-1.92.6\imgui_widgets.cpp" />
-    <ClCompile Include="frustum.cpp" />
-    <ClCompile Include="hotbar.cpp" />
-    <ClCompile Include="inventory.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="player.cpp" />
-    <ClCompile Include="stb.cpp" />
-    <ClCompile Include="world.cpp" />
+    <ClCompile Include="src\frustum.cpp" />
+    <ClCompile Include="src\hotbar.cpp" />
+    <ClCompile Include="src\inventory.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\player.cpp" />
+    <ClCompile Include="src\QuadMesh.cpp" />
+    <ClCompile Include="src\SkyRenderer.cpp" />
+    <ClCompile Include="external\stb_impl.cpp" />
+    <ClCompile Include="src\world.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="aabb.h" />
-    <ClInclude Include="audio.h" />
-    <ClInclude Include="block.h" />
-    <ClInclude Include="camera.h" />
-    <ClInclude Include="chunk.h" />
-    <ClInclude Include="frustum.h" />
-    <ClInclude Include="hotbar.h" />
-    <ClInclude Include="inventory.h" />
-    <ClInclude Include="player.h" />
-    <ClInclude Include="world.h" />
+    <ClInclude Include="src\aabb.h" />
+    <ClInclude Include="src\audio.h" />
+    <ClInclude Include="src\block.h" />
+    <ClInclude Include="src\camera.h" />
+    <ClInclude Include="src\chunk.h" />
+    <ClInclude Include="src\frustum.h" />
+    <ClInclude Include="src\hotbar.h" />
+    <ClInclude Include="src\inventory.h" />
+    <ClInclude Include="src\player.h" />
+    <ClInclude Include="src\QuadMesh.h" />
+    <ClInclude Include="src\SkyRenderer.h" />
+    <ClInclude Include="src\world.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

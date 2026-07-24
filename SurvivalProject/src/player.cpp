@@ -220,7 +220,11 @@ void Player::Update(float deltaTime, World& world, Camera& camera)
         jumpBufferTimer = 0.0f;
         fallStartY = -1.0f;
 
-        MoveAndCollide(velocity * deltaTime, world);
+        //MoveAndCollide(velocity * deltaTime, world);
+
+        // noclip
+        position += velocity * deltaTime;
+        
         isGrounded = false;
 
         camera.Position = position + glm::vec3(0.0f, eyeHeight, 0.0f);

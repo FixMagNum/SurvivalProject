@@ -21,6 +21,7 @@
 #include "hotbar.h"
 #include "inventory.h"
 #include "audio.h"
+#include "SkyRenderer.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -243,6 +244,8 @@ Camera camera(glm::vec3(0.0f, 120.0f, 3.0f));
 Player player(glm::vec3(0.0f, 120.0f, 0.0f));
 Hotbar hotbar;
 Inventory inventory;
+
+SkyRenderer skyRenderer;
 
 static double g_scrollDelta = 0.0;
 static float g_timeOfDay = 0.0f; // 0.0 = рассвет, 0.5 = закат, 1.0 = рассвет
@@ -1067,7 +1070,7 @@ int main()
         }
 
         // Цикл дня/ночи
-        g_timeOfDay += deltaTime * 0.001f; // 1000 секунд = одни сутки
+        g_timeOfDay += deltaTime * 0.01f; // 1000 секунд = одни сутки
         if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
 
         // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
@@ -1120,6 +1123,8 @@ int main()
             (int)floor(camera.Position.z)
         );
         bool underwater = (cameraBlock == WATER);
+
+        skyRenderer.Update(camera, g_timeOfDay);
 
         // Рендер
         static const RenderGroup renderOrder[] = {

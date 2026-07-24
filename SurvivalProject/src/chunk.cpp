@@ -462,8 +462,7 @@ void Chunk::Generate()
                     continue;
                 
                 // Ставим только на верхнюю поверхность травы
-                if (blocks[x][y][z] == GRASS &&
-                    blocks[x][y + 1][z] == AIR)
+                if (blocks[x][y][z] == GRASS && blocks[x][y + 1][z] == AIR)
                 {
                     // Цветы редкие
                     if (flowerValue > 0.65f)
