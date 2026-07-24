@@ -1,0 +1,18 @@
+[submodule "SurvivalProject/external/glfw"]
+	path = SurvivalProject/external/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "SurvivalProject/external/openal-soft"]
+	path = SurvivalProject/external/openal-soft
+	url = https://github.com/kcat/openal-soft.git
+[submodule "SurvivalProject/external/glm"]
+	path = SurvivalProject/external/glm
+	url = https://github.com/g-truc/glm.git
+[submodule "SurvivalProject/external/imgui"]
+	path = SurvivalProject/external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "SurvivalProject/external/FastNoiseLite"]
+	path = SurvivalProject/external/FastNoiseLite
+	url = https://github.com/Auburn/FastNoiseLite.git
+[submodule "SurvivalProject/external/stb"]
+	path = SurvivalProject/external/stb
+	url = https://github.com/nothings/stb.git
