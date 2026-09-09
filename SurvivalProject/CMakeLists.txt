@@ -6,8 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
-    add_compile_options(/utf-8)
+    add_compile_options(/utf-8 /MP)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+    add_compile_options(-Wall -Wextra)
 endif()
 
 find_package(OpenGL REQUIRED)
@@ -16,7 +18,7 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
-add_subdirectory(external/glfw)
+add_subdirectory(external/glfw SYSTEM)
 
 set(LIBTYPE STATIC)
 set(ALSOFT_UTILS        OFF CACHE BOOL "" FORCE)
@@ -24,7 +26,7 @@ set(ALSOFT_EXAMPLES     OFF CACHE BOOL "" FORCE)
 set(ALSOFT_TESTS        OFF CACHE BOOL "" FORCE)
 set(ALSOFT_INSTALL      OFF CACHE BOOL "" FORCE)
 set(ALSOFT_NO_CONFIG_UTIL ON CACHE BOOL "" FORCE)
-add_subdirectory(external/openal-soft)
+add_subdirectory(external/openal-soft SYSTEM)
 
 add_library(glad STATIC external/glad/src/glad.c)
 target_include_directories(glad PUBLIC external/glad/include)
@@ -59,9 +61,12 @@ add_executable(SurvivalProject
     src/inventory.cpp
     src/main.cpp
     src/player.cpp
-    src/QuadMesh.cpp
-    src/SkyRenderer.cpp
+    "src/core/QuadMesh.cpp"
+    "src/renderer/SkyRenderer.cpp"
     src/world.cpp
+    "src/core/Shader.cpp"
+    "src/utils/FileUtils.cpp"
+    "src/core/Texture.cpp"
 )
 
 target_include_directories(SurvivalProject PRIVATE src)
@@ -73,13 +78,13 @@ target_link_libraries(SurvivalProject PRIVATE
     FastNoiseLite
     stb
     imgui
-    OpenAL
+    OpenAL::OpenAL
     OpenGL::GL
 )
 
 add_custom_command(TARGET SurvivalProject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:SurvivalProject>/assets
+            "${CMAKE_SOURCE_DIR}/assets"
+            "$<TARGET_FILE_DIR:SurvivalProject>/assets"
     COMMENT "Copying assets next to the executable"
 )

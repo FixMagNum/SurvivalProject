@@ -19,11 +19,19 @@ public:
 
     Camera(glm::vec3 position);
 
-    glm::mat4 GetViewMatrix();
+    glm::mat4 GetViewMatrix() const;
+	glm::mat4 GetProjectionMatrix() const;
+
+    void SetAspectRatio(float aspectRatio);
 
     void ProcessKeyboard(int key, float deltaTime);
     void ProcessMouse(float xoffset, float yoffset);
 
 private:
     void UpdateVectors();
+
+	float m_Fov = 75.0f;
+	float m_AspectRatio;
+    float m_NearPlane = 0.1f;
+	float m_FarPlane = 1000.0f;
 };

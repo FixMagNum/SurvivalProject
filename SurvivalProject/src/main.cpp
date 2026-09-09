@@ -15,13 +15,14 @@
 #include <stb_image.h>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "hotbar.h"
 #include "inventory.h"
 #include "audio.h"
-#include "SkyRenderer.h"
+#include "renderer/SkyRenderer.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -245,7 +246,7 @@ Player player(glm::vec3(0.0f, 120.0f, 0.0f));
 Hotbar hotbar;
 Inventory inventory;
 
-SkyRenderer skyRenderer;
+std::unique_ptr<SkyRenderer> skyRenderer;
 
 static double g_scrollDelta = 0.0;
 static float g_timeOfDay = 0.0f; // 0.0 = рассвет, 0.5 = закат, 1.0 = рассвет
@@ -276,6 +277,8 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     g_width = (float)width;
     g_height = (float)height;
     glViewport(0, 0, width, height);
+
+    camera.SetAspectRatio((float)g_width / (float)g_height);
 }
 
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos)
@@ -428,6 +431,10 @@ int main()
 
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     glViewport(0, 0, fbW, fbH);
+
+    camera.SetAspectRatio(g_width / g_height);
+
+    skyRenderer = std::make_unique<SkyRenderer>();
 
     // Dear ImGui
     IMGUI_CHECKVERSION();
@@ -641,7 +648,7 @@ int main()
         bool wantsCrouch = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
         bool spaceDown = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
         bool fDown = (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS);
-        
+
         if (fDown && !g_prevF)
         {
             player.ToggleFlight();
@@ -665,7 +672,7 @@ int main()
             // Если хочет встать — проверяем есть ли место
             if (!wantsCrouch && player.isCrouching)
             {
-            // Проверяем есть ли место для полного роста
+                // Проверяем есть ли место для полного роста
                 float half = Player::WIDTH / 2.0f;
                 int minX = (int)floor(player.position.x - half);
                 int maxX = (int)floor(player.position.x + half - 0.001f);
@@ -679,7 +686,7 @@ int main()
                         if (player.IsSolid(x, topY, z, world))
                             canStand = false;
 
-            player.isCrouching = !canStand; // встаём только если есть место
+                player.isCrouching = !canStand; // встаём только если есть место
             }
             else
             {
@@ -1070,7 +1077,7 @@ int main()
         }
 
         // Цикл дня/ночи
-        g_timeOfDay += deltaTime * 0.01f; // 1000 секунд = одни сутки
+        g_timeOfDay += deltaTime * 0.001f; // 1000 секунд = одни сутки
         if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
 
         // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
@@ -1124,7 +1131,7 @@ int main()
         );
         bool underwater = (cameraBlock == WATER);
 
-        skyRenderer.Update(camera, g_timeOfDay);
+        skyRenderer->Update(camera, g_timeOfDay);
 
         // Рендер
         static const RenderGroup renderOrder[] = {
@@ -1136,7 +1143,7 @@ int main()
 
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(75.0f), g_width / g_height, 0.1f, 1000.0f);
+        glm::mat4 projection = camera.GetProjectionMatrix();
         glm::mat4 viewProj = projection * view;
         frustum.Update(viewProj);
 
@@ -1148,6 +1155,10 @@ int main()
 
         glClearColor(skyColorGamma.r, skyColorGamma.g, skyColorGamma.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        skyRenderer->Render(camera);
 
         glUseProgram(shaderProgram);
 
@@ -1172,7 +1183,7 @@ int main()
         // Общие fixed-function state
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        glEnable(GL_DEPTH_TEST);
+        //glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);
 

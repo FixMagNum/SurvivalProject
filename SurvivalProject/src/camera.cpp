@@ -18,9 +18,19 @@ Camera::Camera(glm::vec3 position)
     UpdateVectors();
 }
 
-glm::mat4 Camera::GetViewMatrix()
+glm::mat4 Camera::GetViewMatrix() const
 {
     return glm::lookAt(Position, Position + Front, Up);
+}
+
+glm::mat4 Camera::GetProjectionMatrix() const
+{
+    return glm::perspective(glm::radians(m_Fov), m_AspectRatio, m_NearPlane, m_FarPlane);
+}
+
+void Camera::SetAspectRatio(float aspectRatio)
+{
+    m_AspectRatio = aspectRatio;
 }
 
 void Camera::ProcessKeyboard(int key, float deltaTime)
@@ -68,7 +78,7 @@ void Camera::ProcessMouse(float xoffset, float yoffset)
 
 void Camera::UpdateVectors()
 {
-    glm::vec3 front;
+    glm::vec3 front{};
     front.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
     front.y = sin(glm::radians(Pitch));
     front.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
