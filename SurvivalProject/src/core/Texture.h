@@ -10,10 +10,15 @@ enum class TextureColorSpace {
     SRGB
 };
 
+enum class TextureMagFilter : GLenum {
+	Nearest = GL_NEAREST,
+	Linear = GL_LINEAR
+};
+
 class Texture
 {
 public:
-    explicit Texture(const std::filesystem::path& path, TextureColorSpace colorSpace);
+    explicit Texture(const std::filesystem::path& path, TextureColorSpace colorSpace, TextureMagFilter magFilter);
     ~Texture();
 
     void Bind(unsigned int slot = 0) const;

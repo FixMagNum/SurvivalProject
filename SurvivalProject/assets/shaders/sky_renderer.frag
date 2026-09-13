@@ -4,26 +4,13 @@ out vec4 FragColor;
 
 in vec2 TexCoord;
 
-uniform sampler2D uSunTexture;
-uniform sampler2D uMoonTexture;
-uniform sampler2D uGlowTexture;
+uniform sampler2D uSpriteTexture;
 
-uniform int uCelestialBody;
-
-uniform float uMoonAlpha;
+uniform float uAlpha;
 
 void main()
 {
-    vec4 color;
+    vec4 color = texture(uSpriteTexture, TexCoord);
 
-    if (uCelestialBody == 0)
-        color = texture(uSunTexture, TexCoord);
-    else if (uCelestialBody == 1)
-        color = texture(uMoonTexture, TexCoord) * vec4(1.0, 1.0, 1.0, 1.0 * uMoonAlpha);
-    else if (uCelestialBody == 2)
-        color = texture(uGlowTexture, TexCoord) * vec4(1.0, 1.0, 1.0, 0.15);
-    else if (uCelestialBody == 3)
-        color = texture(uGlowTexture, TexCoord) * vec4(1.0, 1.0, 1.0, 0.05 * uMoonAlpha);
-
-    FragColor = color;
+    FragColor = vec4(color.rgb, color.a * uAlpha);
 }

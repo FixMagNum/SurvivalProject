@@ -21,9 +21,11 @@ GLenum Texture::GetInternalFormat(int nrChannels, TextureColorSpace colorSpace)
 		throw std::runtime_error("Unsupported number of texture channels");
 }
 
-Texture::Texture(const std::filesystem::path& path, TextureColorSpace colorSpace)
+Texture::Texture(const std::filesystem::path& path, TextureColorSpace colorSpace, TextureMagFilter magFilter)
 {
 	int width, height, nrChannels;
+
+	stbi_set_flip_vertically_on_load(true);
 
 	unsigned char* data = stbi_load(path.string().c_str(), &width, &height, &nrChannels, 0);
 
@@ -51,15 +53,19 @@ Texture::Texture(const std::filesystem::path& path, TextureColorSpace colorSpace
 	glGenTextures(1, &m_Texture);
 	glBindTexture(GL_TEXTURE_2D, m_Texture);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLenum>(magFilter));
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
 	glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
 	
 	glGenerateMipmap(GL_TEXTURE_2D);
+
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
 	stbi_image_free(data);
 }

@@ -8,30 +8,17 @@ out vec2 TexCoord;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform vec3 uSunPosition;
-uniform vec3 uMoonPosition;
-uniform float uSize;
+uniform vec3 uSpritePosition;
 
-uniform int uCelestialBody;
+uniform float uSize;
 
 void main()
 {
-    vec3 position;
-
-    if (uCelestialBody == 0)
-        position = uSunPosition;
-    else if (uCelestialBody == 1)
-        position = uMoonPosition;
-    else if (uCelestialBody == 2)
-        position = uSunPosition;
-    else if (uCelestialBody == 3)
-        position = uMoonPosition;
-
     vec3 cameraRight = vec3(view[0][0], view[1][0], view[2][0]);
     vec3 cameraUp    = vec3(view[0][1], view[1][1], view[2][1]);
 
     vec3 worldPos =
-        position
+        uSpritePosition
         + cameraRight * aPosition.x * uSize
         + cameraUp * aPosition.y * uSize;
 

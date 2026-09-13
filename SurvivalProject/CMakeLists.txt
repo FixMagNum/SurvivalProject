@@ -61,12 +61,13 @@ add_executable(SurvivalProject
     src/inventory.cpp
     src/main.cpp
     src/player.cpp
-    "src/core/QuadMesh.cpp"
-    "src/renderer/SkyRenderer.cpp"
+    src/core/QuadMesh.cpp
+    src/renderer/SkyRenderer.cpp
     src/world.cpp
-    "src/core/Shader.cpp"
-    "src/utils/FileUtils.cpp"
-    "src/core/Texture.cpp"
+    src/core/Shader.cpp
+    src/utils/FileUtils.cpp
+    src/core/Texture.cpp
+    src/renderer/HUDRenderer.cpp
 )
 
 target_include_directories(SurvivalProject PRIVATE src)

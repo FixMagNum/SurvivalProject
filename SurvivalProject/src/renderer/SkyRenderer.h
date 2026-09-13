@@ -17,7 +17,9 @@ public:
 
 private:
 	QuadMesh m_Quad;
+
 	Shader m_Shader;
+
 	Texture m_SunTexture;
 	Texture m_MoonTexture;
 	Texture m_GlowTexture;

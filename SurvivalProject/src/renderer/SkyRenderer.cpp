@@ -1,9 +1,9 @@
 #include "SkyRenderer.h"
 
 SkyRenderer::SkyRenderer()
-	: m_SunTexture("assets/textures/sun.png", TextureColorSpace::SRGB),
-	m_MoonTexture("assets/textures/moon2.png", TextureColorSpace::SRGB),
-	m_GlowTexture("assets/textures/sky_glow.png", TextureColorSpace::SRGB),
+	: m_SunTexture("assets/textures/sun.png", TextureColorSpace::SRGB, TextureMagFilter::Linear),
+	m_MoonTexture("assets/textures/moon2.png", TextureColorSpace::SRGB, TextureMagFilter::Linear),
+	m_GlowTexture("assets/textures/sky_glow.png", TextureColorSpace::SRGB, TextureMagFilter::Linear),
 	m_Shader("assets/shaders/sky_renderer.vert", "assets/shaders/sky_renderer.frag"),
 	m_SunDirection(0.0f),
 	m_SunPosition(0.0f),
@@ -11,9 +11,6 @@ SkyRenderer::SkyRenderer()
 	m_MoonPosition(0.0f)
 {
 	m_Shader.Bind();
-	m_Shader.SetInt("uSunTexture", 0);
-	m_Shader.SetInt("uMoonTexture", 1);
-	m_Shader.SetInt("uGlowTexture", 2);
 	m_Shader.Unbind();
 }
 
@@ -40,6 +37,25 @@ void SkyRenderer::Update(const Camera& camera, float timeOfDay)
 	m_MoonPosition = camera.Position + m_MoonDirection * SkyRadius;
 }
 
+struct SkySprite
+{
+	const Texture* texture;
+	glm::vec3 position;
+	float size;
+	float alpha = 1.0f;
+};
+
+static void RenderSprite(const SkySprite& sprite, const int location, const QuadMesh& quad, const Shader& shader)
+{
+	sprite.texture->Bind(location);
+	shader.SetInt("uSpriteTexture", location);
+	shader.SetVec3("uSpritePosition", sprite.position);
+	shader.SetFloat("uSize", sprite.size);
+	shader.SetFloat("uAlpha", sprite.alpha);
+	quad.Draw();
+	sprite.texture->Unbind();
+}
+
 void SkyRenderer::Render(const Camera& camera)
 {
 	m_Shader.Bind();
@@ -47,48 +63,27 @@ void SkyRenderer::Render(const Camera& camera)
 	m_Shader.SetMat4("view", camera.GetViewMatrix());
 	m_Shader.SetMat4("projection", camera.GetProjectionMatrix());
 
-	m_SunTexture.Bind(0);
-	m_MoonTexture.Bind(1);
-	m_GlowTexture.Bind(2);
+	float moonAlpha = glm::smoothstep(-0.15f, 0.35f, m_MoonDirection.y);
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
-	// Sun rendering
-	m_Shader.SetVec3("uSunPosition", m_SunPosition);
-
 	// Sun glow
-	m_Shader.SetInt("uCelestialBody", 2);
-	m_Shader.SetFloat("uSize", 240.0f);
-	m_Quad.Draw();
+	RenderSprite({ &m_GlowTexture, m_SunPosition, 240.0f , 0.15f }, 2, m_Quad, m_Shader);
 
 	// Sun
-	m_Shader.SetInt("uCelestialBody", 0);
-	m_Shader.SetFloat("uSize", 40.0f);
-	m_Quad.Draw();
-
-	// Moon rendering
-	float moonAlpha = glm::smoothstep(-0.15f, 0.35f, m_MoonDirection.y);
-
-	m_Shader.SetFloat("uMoonAlpha", moonAlpha);
-	m_Shader.SetVec3("uMoonPosition", m_MoonPosition);
+	RenderSprite({ &m_SunTexture, m_SunPosition, 40.0f, 1.0f }, 0, m_Quad, m_Shader);
 
 	if (moonAlpha > 0.0f)
 	{
 		// Moon glow
-		m_Shader.SetInt("uCelestialBody", 3);
-		m_Shader.SetFloat("uSize", 90.0f);
-		m_Quad.Draw();
+		RenderSprite({ &m_GlowTexture, m_MoonPosition, 90.0f, 0.05f * moonAlpha }, 2, m_Quad, m_Shader);
 
 		// Moon
-		m_Shader.SetInt("uCelestialBody", 1);
-		m_Shader.SetFloat("uSize", 30.0f);
-		m_Quad.Draw();
+		RenderSprite({ &m_MoonTexture, m_MoonPosition, 30.0f, 1.0f * moonAlpha }, 1, m_Quad, m_Shader);
 	}
 
 	glDisable(GL_BLEND);
 
-	m_SunTexture.Unbind();
-	m_MoonTexture.Unbind();
 	m_Shader.Unbind();
 }

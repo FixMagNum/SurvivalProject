@@ -23,6 +23,7 @@
 #include "inventory.h"
 #include "audio.h"
 #include "renderer/SkyRenderer.h"
+#include "renderer/HUDRenderer.h"
 
 // Основной шейдер (блоки)
 const char* vertexShaderSource = R"(
@@ -204,24 +205,6 @@ void main()
 }
 )";
 
-const char* crosshairVertSrc = R"(
-#version 330 core
-layout (location = 0) in vec2 aPos;
-uniform vec2 uScreenSize; // ширина и высота в пикселях
-void main()
-{
-    // aPos задан в пикселях от центра, переводим в NDC
-    vec2 pos = aPos / uScreenSize * 2.0;
-    gl_Position = vec4(pos, 0.0, 1.0);
-}
-)";
-
-const char* crosshairFragSrc = R"(
-#version 330 core
-out vec4 FragColor;
-void main() { FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
-)";
-
 const char* outlineVertSrc = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -247,6 +230,7 @@ Hotbar hotbar;
 Inventory inventory;
 
 std::unique_ptr<SkyRenderer> skyRenderer;
+std::unique_ptr<HUDRenderer> hudRenderer;
 
 static double g_scrollDelta = 0.0;
 static float g_timeOfDay = 0.0f; // 0.0 = рассвет, 0.5 = закат, 1.0 = рассвет
@@ -435,6 +419,7 @@ int main()
     camera.SetAspectRatio(g_width / g_height);
 
     skyRenderer = std::make_unique<SkyRenderer>();
+	hudRenderer = std::make_unique<HUDRenderer>();
 
     // Dear ImGui
     IMGUI_CHECKVERSION();
@@ -448,7 +433,6 @@ int main()
 
     // Шейдеры
     unsigned int shaderProgram = CompileShader(vertexShaderSource, fragmentShaderSource);
-    unsigned int crosshairProgram = CompileShader(crosshairVertSrc, crosshairFragSrc);
     unsigned int outlineProgram = CompileShader(outlineVertSrc, outlineFragSrc);
 
     float ch = 5.0f;    // длина
@@ -510,6 +494,7 @@ int main()
 
     // OpenGL состояние
     //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    //glLineWidth(3.0f);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
@@ -596,7 +581,6 @@ int main()
     unsigned int projLoc = glGetUniformLocation(shaderProgram, "projection");
     unsigned int ambientLoc = glGetUniformLocation(shaderProgram, "uAmbient");
     unsigned int lightTintLoc = glGetUniformLocation(shaderProgram, "uLightTint");
-    unsigned int screenSizeLoc = glGetUniformLocation(crosshairProgram, "uScreenSize");
     unsigned int fogStartLoc = glGetUniformLocation(shaderProgram, "uFogStart");
     unsigned int fogEndLoc = glGetUniformLocation(shaderProgram, "uFogEnd");
     unsigned int timeLoc = glGetUniformLocation(shaderProgram, "uTime");
@@ -1077,7 +1061,7 @@ int main()
         }
 
         // Цикл дня/ночи
-        g_timeOfDay += deltaTime * 0.001f; // 1000 секунд = одни сутки
+        g_timeOfDay += deltaTime * 0.005f; // 1000 секунд = одни сутки
         if (g_timeOfDay > 1.0f) g_timeOfDay -= 1.0f;
 
         // Угол солнца: 0 = горизонт (рассвет), PI/2 = зенит (полдень), PI = горизонт (закат)
@@ -1263,15 +1247,9 @@ int main()
 
         // Крестик (2D поверх всего)
         glDisable(GL_DEPTH_TEST);
-        glUseProgram(crosshairProgram);
-        glUniform2f(screenSizeLoc, g_width, g_height);
-        glBindVertexArray(chVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 12); // 12 вершин = 2 прямоугольника
-        glBindVertexArray(0);
-        glEnable(GL_DEPTH_TEST);
 
-        // Рендер хотбара
-        glDisable(GL_DEPTH_TEST);
+        hudRenderer->Render(g_width, g_height);
+
         glDisable(GL_CULL_FACE);
         hotbar.Draw(g_width, g_height);
         glEnable(GL_CULL_FACE);
