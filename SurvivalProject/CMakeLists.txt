@@ -1,32 +1,26 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 project(SurvivalProject LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(MSVC)
-    add_compile_options(/utf-8 /MP)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
-else()
-    add_compile_options(-Wall -Wextra)
-endif()
-
 find_package(OpenGL REQUIRED)
 
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
-add_subdirectory(external/glfw SYSTEM)
+option(GLFW_BUILD_EXAMPLES "" OFF)
+option(GLFW_BUILD_TESTS    "" OFF)
+option(GLFW_BUILD_DOCS     "" OFF)
+option(GLFW_INSTALL        "" OFF)
+add_subdirectory(external/glfw)
 
 set(LIBTYPE STATIC)
-set(ALSOFT_UTILS        OFF CACHE BOOL "" FORCE)
-set(ALSOFT_EXAMPLES     OFF CACHE BOOL "" FORCE)
-set(ALSOFT_TESTS        OFF CACHE BOOL "" FORCE)
-set(ALSOFT_INSTALL      OFF CACHE BOOL "" FORCE)
-set(ALSOFT_NO_CONFIG_UTIL ON CACHE BOOL "" FORCE)
-add_subdirectory(external/openal-soft SYSTEM)
+option(ALSOFT_UTILS          "" OFF)
+option(ALSOFT_EXAMPLES       "" OFF)
+option(ALSOFT_TESTS          "" OFF)
+option(ALSOFT_INSTALL        "" OFF)
+option(ALSOFT_NO_CONFIG_UTIL "" ON)
+option(ALSOFT_EMBED_FMT      "" OFF)
+add_subdirectory(external/openal-soft openal-build)
 
 add_library(glad STATIC external/glad/src/glad.c)
 target_include_directories(glad PUBLIC external/glad/include)
@@ -45,7 +39,6 @@ add_library(imgui STATIC
     external/imgui/imgui_draw.cpp
     external/imgui/imgui_tables.cpp
     external/imgui/imgui_widgets.cpp
-    external/imgui/imgui_demo.cpp
     external/imgui/backends/imgui_impl_glfw.cpp
     external/imgui/backends/imgui_impl_opengl3.cpp
 )
@@ -61,16 +54,25 @@ add_executable(SurvivalProject
     src/inventory.cpp
     src/main.cpp
     src/player.cpp
-    src/core/QuadMesh.cpp
-    src/renderer/SkyRenderer.cpp
     src/world.cpp
+    src/core/QuadMesh.cpp
     src/core/Shader.cpp
-    src/utils/FileUtils.cpp
     src/core/Texture.cpp
+    src/renderer/SkyRenderer.cpp
     src/renderer/HUDRenderer.cpp
+    src/utils/FileUtils.cpp
 )
 
 target_include_directories(SurvivalProject PRIVATE src)
+
+if(MSVC)
+    target_compile_options(SurvivalProject PRIVATE /W4 /utf-8 /MP)
+    target_compile_definitions(SurvivalProject PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(SurvivalProject PRIVATE -Wall -Wextra)
+endif()
+
+target_compile_definitions(SurvivalProject PRIVATE GLFW_INCLUDE_NONE)
 
 target_link_libraries(SurvivalProject PRIVATE
     glad
@@ -84,8 +86,8 @@ target_link_libraries(SurvivalProject PRIVATE
 )
 
 add_custom_command(TARGET SurvivalProject POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
             "${CMAKE_SOURCE_DIR}/assets"
             "$<TARGET_FILE_DIR:SurvivalProject>/assets"
-    COMMENT "Copying assets next to the executable"
+    COMMENT "Syncing assets next to the executable"
 )
